@@ -29,6 +29,12 @@ echo "$source_output" | tail -1
 ssh dokploy "sudo -n docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev --entrypoint sh '$image' -lc 'grep -R -F -q --include=\"*.mjs\" \"ownerAgentId: input.ownerAgentId ?? null\" /app/server/dist-runtime'"
 echo "owner_agent_insert_bundle=present"
 
+# Check both sides of the owner boundary in the emitted server build, plus the
+# specific routine-execution collision recovery path. This catches overlays
+# that contain the bundled route but stale package/server artifacts.
+ssh dokploy "sudo -n docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev --entrypoint sh '$image' -lc 'grep -F -q \"testEnvironmentId, adapterType, agentId\" /app/server/dist/routes/agents.js && grep -F -q \"environmentId, agent.adapterType, agent.id\" /app/server/dist/services/agent-harness-verification.js && grep -F -q \"ownerAgentId !== agent.id\" /app/server/dist/services/heartbeat/environment-selection.js && grep -R -F -q --include=\"*.mjs\" \"isOpenRoutineExecutionClaimContention\" /app/server/dist-runtime && test -f /app/packages/db/dist/migrations/0375_stiff_meggan.sql && test -f /app/server/dist/vendor/paperclip-runner/index.js'"
+echo "owner_guards_queue_recovery_migration_runner=present"
+
 # Start the real image entrypoint with a fresh in-container app home, no
 # production environment, no secrets, no network, and no persistent mounts.
 # Reaching the documented missing-auth-secret guard proves initialization got
