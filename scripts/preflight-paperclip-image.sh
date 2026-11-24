@@ -35,6 +35,12 @@ echo "owner_agent_insert_bundle=present"
 ssh dokploy "sudo -n docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev --entrypoint sh '$image' -lc 'grep -F -q \"testEnvironmentId, adapterType, agentId\" /app/server/dist/routes/agents.js && grep -F -q \"environmentId, agent.adapterType, agent.id\" /app/server/dist/services/agent-harness-verification.js && grep -F -q \"ownerAgentId !== agent.id\" /app/server/dist/services/heartbeat/environment-selection.js && grep -R -F -q --include=\"*.mjs\" \"isOpenRoutineExecutionClaimContention\" /app/server/dist-runtime && test -f /app/packages/db/dist/migrations/0375_stiff_meggan.sql && test -f /app/server/dist/vendor/paperclip-runner/index.js'"
 echo "owner_guards_queue_recovery_migration_runner=present"
 
+# The remote MCP bridge must be built with the same narrow internal endpoint
+# gate as the source tests. This catches overlays that ship the route proxy but
+# omit the allowlist or its unassigned-route fail-closed guard.
+ssh dokploy "sudo -n docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev --entrypoint sh '$image' -lc 'grep -R -F -q --include=\"*.mjs\" \"MCP route was not assigned to this run.\" /app/server/dist-runtime && grep -R -F -q --include=\"*.mjs\" \"/api/mcp/runtime-tools\" /app/server/dist-runtime && grep -R -F -q --include=\"*.mjs\" \"/api/mcp/gateways/\" /app/server/dist-runtime'"
+echo "remote_mcp_bridge_bundle=present"
+
 # Start the real image entrypoint with a fresh in-container app home, no
 # production environment, no secrets, no network, and no persistent mounts.
 # Reaching the documented missing-auth-secret guard proves initialization got

@@ -4333,6 +4333,8 @@ export async function startAdapterExecutionTargetPaperclipBridge(input: {
   timeoutSec?: number | null;
   hostApiToken: string | null | undefined;
   hostApiUrl?: string | null;
+  /** Trusted host-side auth for the exact internal MCP routes delivered to this run. */
+  mcpRoutes?: Array<{ path: string; headers: Record<string, string> }>;
   onLog?: (stream: "stdout" | "stderr", chunk: string) => Promise<void>;
   maxBodyBytes?: number | null;
   // The deadline for one forward call, in milliseconds. This is the inner budget
@@ -4417,6 +4419,19 @@ export async function startAdapterExecutionTargetPaperclipBridge(input: {
   // :: -> [::1]), so the fallback is always loopback-reachable.
   // input.hostApiUrl stays available as an explicit override seam.
   const hostApiUrl = input.hostApiUrl?.trim() || resolveDefaultPaperclipApiUrl();
+  const trustedMcpHeaders = new Map<string, Record<string, string>>();
+  for (const route of input.mcpRoutes ?? []) {
+    const allowedPath = route.path === "/api/mcp/project-tools" ||
+      route.path === "/api/mcp/runtime-tools" ||
+      /^\/api\/mcp\/gateways\/[A-Za-z0-9._-]+$/.test(route.path);
+    const authorization = Object.entries(route.headers).find(([name]) => name.toLowerCase() === "authorization")?.[1]?.trim();
+    if (!allowedPath || !authorization) continue;
+    const prior = trustedMcpHeaders.get(route.path);
+    if (prior && prior.authorization !== authorization) {
+      throw new Error("Conflicting credentials for a Paperclip MCP callback path.");
+    }
+    trustedMcpHeaders.set(route.path, { authorization });
+  }
   const shellCommand = adapterExecutionTargetShellCommand(target);
   const runner = adapterExecutionTargetCommandRunner(target);
   const bridgeTimeoutMs =
@@ -4452,11 +4467,11 @@ export async function startAdapterExecutionTargetPaperclipBridge(input: {
   // Only intended for active debugging in trusted environments.
   const bridgeDebugEnabled = isBridgeDebugEnabled(process.env);
 
-  // One forward of a relayed sandbox request onto the existing Paperclip API
-  // path. The forward applies the real host token and the signed run id, so the
-  // token replacement and the run attribution stay in one place for both the
-  // file bridge and the duplex broker. The sandbox request carries only the
-  // bridge token; the real agent token never leaves the host.
+  // One forward of a relayed request onto the existing Paperclip API path. The
+  // default path applies the host-held run token and run id. Internal MCP POSTs
+  // instead use credentials captured from this run's trusted MCP configuration;
+  // remote callers never choose the upstream Authorization value. Both the
+  // file bridge and duplex broker share this forwarder.
   const forwardBridgeRequest = async (
     request: {
       method: string;
@@ -4492,7 +4507,29 @@ export async function startAdapterExecutionTargetPaperclipBridge(input: {
       if (value.trim().length === 0) continue;
       headers.set(key, value);
     }
-    headers.set("authorization", `Bearer ${hostApiToken}`);
+    const mcpHeaders = method === "POST" ? trustedMcpHeaders.get(request.path) : undefined;
+    const isInternalMcpPath = request.path === "/api/mcp/project-tools" ||
+      request.path === "/api/mcp/runtime-tools" ||
+      /^\/api\/mcp\/gateways\/[A-Za-z0-9._-]+$/.test(request.path);
+    if (isInternalMcpPath && request.query.trim()) {
+      return {
+        status: 400,
+        headers: { "content-type": "application/json" },
+        body: Buffer.from(JSON.stringify({ error: "MCP callback routes do not accept query parameters." }), "utf8"),
+      };
+    }
+    if (isInternalMcpPath && !mcpHeaders) {
+      return {
+        status: 403,
+        headers: { "content-type": "application/json" },
+        body: Buffer.from(JSON.stringify({ error: "MCP route was not assigned to this run." }), "utf8"),
+      };
+    }
+    if (mcpHeaders) {
+      for (const [key, value] of Object.entries(mcpHeaders)) headers.set(key, value);
+    } else {
+      headers.set("authorization", `Bearer ${hostApiToken}`);
+    }
     headers.set("x-paperclip-run-id", input.runId);
     // Abort the forward when the caller aborts the request (its per-iteration
     // timeout or watchdog fired, or the broker's forward budget ended), or after

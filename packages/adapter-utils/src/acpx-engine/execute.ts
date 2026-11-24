@@ -15,6 +15,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { parseFrontmatterMarkdown } from "@paperclipai/shared";
 import { fileURLToPath } from "node:url";
 import type {
+  AdapterRuntimeMcpServer,
   AdapterBillingType,
   AdapterExecutionContext,
   AdapterExecutionResult,
@@ -272,6 +273,78 @@ interface AcpxEngineSettings {
   adapterType: string;
   moduleDir: string;
   packageRootDir: string;
+}
+
+/**
+ * A remote execution target cannot reach Paperclip's loopback MCP URLs: those
+ * addresses resolve inside the Paperclip server container. Route only the
+ * built-in, run-scoped JSON-RPC endpoints through the per-run callback bridge.
+ * The bridge bearer is replaced host-side with the credential captured for that
+ * exact route; the HTTP allowlist admits only these POST endpoints.
+ * External MCP connections retain their provider URL and credential.
+ */
+export function routePaperclipMcpServersThroughCallbackBridge(
+  servers: NonNullable<AcpRuntimeOptions["mcpServers"]>,
+  bridge: AdapterExecutionTargetPaperclipBridgeHandle | null | undefined,
+): NonNullable<AcpRuntimeOptions["mcpServers"]> {
+  if (!bridge) return servers;
+  const bridgeUrl = bridge.env.PAPERCLIP_API_URL?.trim();
+  const bridgeToken = bridge.env.PAPERCLIP_API_KEY?.trim();
+  if (!bridgeUrl || !bridgeToken) return servers;
+
+  return servers.map((server) => {
+    if (!("url" in server) || typeof server.url !== "string") return server;
+    let source: URL;
+    try {
+      source = new URL(server.url);
+    } catch {
+      return server;
+    }
+    const loopbackHost = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(source.hostname.toLowerCase());
+    const builtInMcpPath = source.pathname === "/api/mcp/project-tools" ||
+      source.pathname === "/api/mcp/runtime-tools" ||
+      /^\/api\/mcp\/gateways\/[A-Za-z0-9._-]+$/.test(source.pathname);
+    if (source.protocol !== "http:" || !loopbackHost || !builtInMcpPath || source.search) return server;
+
+    const bridgeEndpoint = new URL(`${source.pathname}${source.search}`, bridgeUrl);
+    const existingHeaders = "headers" in server && Array.isArray(server.headers)
+      ? server.headers as Array<{ name: string; value: string }>
+      : [];
+    const headers = existingHeaders.filter((header) => header.name.toLowerCase() !== "authorization");
+    headers.push({ name: "Authorization", value: `Bearer ${bridgeToken}` });
+    return { ...server, url: bridgeEndpoint.toString(), headers };
+  });
+}
+
+/** Host-only credentials for exact built-in MCP paths. Never serialize these
+ * values into the remote process configuration; the bridge uses them after
+ * authenticating its own per-run token. */
+export function buildPaperclipMcpBridgeRoutes(
+  servers: AdapterRuntimeMcpServer[],
+): Array<{ path: string; headers: Record<string, string> }> {
+  const routes = new Map<string, { path: string; headers: Record<string, string> }>();
+  for (const server of servers) {
+    let url: URL;
+    try {
+      url = new URL(server.url);
+    } catch {
+      continue;
+    }
+    const loopbackHost = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname.toLowerCase());
+    const allowedPath = url.pathname === "/api/mcp/project-tools" ||
+      url.pathname === "/api/mcp/runtime-tools" ||
+      /^\/api\/mcp\/gateways\/[A-Za-z0-9._-]+$/.test(url.pathname);
+    if (url.protocol !== "http:" || !loopbackHost || !allowedPath || url.search || !server.token.trim()) continue;
+
+    const path = url.pathname;
+    const route = { path, headers: { authorization: `Bearer ${server.token}` } };
+    const prior = routes.get(path);
+    if (prior && prior.headers.authorization !== route.headers.authorization) {
+      throw new Error("Conflicting credentials for a Paperclip MCP callback path.");
+    }
+    routes.set(path, route);
+  }
+  return [...routes.values()];
 }
 
 export interface AcpxEngineBillingIdentity {
@@ -2482,6 +2555,7 @@ async function buildRuntime(input: {
           adapterKey: input.engine.adapterType,
           timeoutSec,
           hostApiToken: env.PAPERCLIP_API_KEY,
+          mcpRoutes: buildPaperclipMcpBridgeRoutes(runtimeMcpServers),
           enableSandboxDuplexBridge: adapterExecutionTargetEnablesSandboxDuplexBridge(remoteTarget),
           duplexObservabilityRecorder: adapterExecutionTargetDuplexObservabilityRecorder(remoteTarget),
           onLog: input.ctx.onLog,
@@ -4489,7 +4563,10 @@ export function createAcpxEngineExecutor(deps: AcpxEngineExecutorOptions = {}) {
           agentRegistry: prepared.agentRegistry,
           permissionMode: prepared.permissionMode,
           nonInteractivePermissions: prepared.nonInteractivePermissions,
-          mcpServers: prepared.mcpServers,
+          mcpServers: routePaperclipMcpServersThroughCallbackBridge(
+            prepared.mcpServers,
+            prepared.paperclipBridge,
+          ),
           timeoutMs: prepared.timeoutSec > 0 ? prepared.timeoutSec * 1000 : undefined,
           // Scope ACPX runtime verbose logs to the claude agent only. Codex
           // and custom agents already emit their own per-tool output and don't
