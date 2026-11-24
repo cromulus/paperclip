@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { claimNativeSessionResumptions } from "../native-runtime/native-finalization-reconciler.js";
 import type { Db } from "@paperclipai/db";
 import { agents, agentWakeupRequests, caseHandoffs, cases, companies, createDb, EMBEDDED_POSTGRES_TEST_TIMEOUT_MS, heartbeatRuns, issueComments, issues, nativeRunFinalizations } from "@paperclipai/db";
@@ -99,6 +100,58 @@ describe.skipIf(!support.supported)("heartbeat queue database wiring", () => {
     return { company, agent, issue, wake, run };
   }
 
+  async function routineExecutionClaimCollision(withQueuedComment = false) {
+    const seeded = await fixture("succeeded");
+    const ownerFinishedAt = new Date();
+    await db.update(heartbeatRuns).set({ finishedAt: ownerFinishedAt }).where(eq(heartbeatRuns.id, seeded.run.id));
+    const identity = {
+      originKind: "routine_execution",
+      originId: "routine-claim-collision",
+      originFingerprint: "same-dispatch-fingerprint",
+    };
+    await db.update(issues).set(identity).where(eq(issues.id, seeded.issue.id));
+    const [pendingIssue] = await db.insert(issues).values({
+      companyId: seeded.company.id,
+      title: "Pending duplicate routine execution",
+      status: "todo",
+      assigneeAgentId: seeded.agent.id,
+      ...identity,
+    }).returning();
+    const [comment] = withQueuedComment
+      ? await db.insert(issueComments).values({
+          companyId: seeded.company.id,
+          issueId: pendingIssue.id,
+          body: "Queued comment must survive the deferred claim",
+          authorAgentId: seeded.agent.id,
+        }).returning()
+      : [null];
+    const wakePayload = comment
+      ? { _paperclipWakeContext: { wakeCommentIds: [comment.id] } }
+      : {};
+    const [wake] = await db.insert(agentWakeupRequests).values({
+      companyId: seeded.company.id,
+      agentId: seeded.agent.id,
+      source: "assignment",
+      reason: "issue_comment_mentioned",
+      status: "queued",
+      payload: wakePayload,
+    }).returning();
+    const [pendingRun] = await db.insert(heartbeatRuns).values({
+      companyId: seeded.company.id,
+      agentId: seeded.agent.id,
+      status: "queued",
+      invocationSource: "assignment",
+      responsibleUserId: "queue-test-user",
+      wakeupRequestId: wake.id,
+      contextSnapshot: {
+        issueId: pendingIssue.id,
+        ...(comment ? { wakeCommentIds: [comment.id] } : {}),
+      },
+    }).returning();
+    await db.update(agentWakeupRequests).set({ runId: pendingRun.id }).where(eq(agentWakeupRequests.id, wake.id));
+    return { ...seeded, pendingIssue, wake, pendingRun, comment, wakePayload };
+  }
+
   async function strandedMention(runtimeMode = "legacy") {
     const seeded = await fixture("succeeded");
     await db.update(heartbeatRuns).set({ runtimeMode, nativeIssueId: runtimeMode === "native" ? seeded.issue.id : null, finishedAt: new Date() }).where(eq(heartbeatRuns.id, seeded.run.id));
@@ -112,6 +165,59 @@ describe.skipIf(!support.supported)("heartbeat queue database wiring", () => {
     }).returning();
     return { ...seeded, recipient, pending };
   }
+
+  it.each([false, true])("defers a routine execution uniqueness race without consuming queued work (queued comment: %s)", async withQueuedComment => {
+    const { agent, issue, run: ownerRun, pendingIssue, wake, pendingRun, comment, wakePayload } =
+      await routineExecutionClaimCollision(withQueuedComment);
+    const deps = callbacks(db);
+    deps.getAgent.mockResolvedValue(agent);
+
+    await expect(createHeartbeatQueue(db, deps).claimQueuedRun(pendingRun)).resolves.toBeNull();
+
+    const [currentRun] = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, pendingRun.id));
+    const [currentWake] = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.id, wake.id));
+    const [currentIssue] = await db.select().from(issues).where(eq(issues.id, pendingIssue.id));
+    const [currentOwnerIssue] = await db.select().from(issues).where(eq(issues.id, issue.id));
+    expect(currentRun).toMatchObject({ status: "queued", startedAt: null, finishedAt: null });
+    expect(currentWake).toMatchObject({ status: "queued", runId: pendingRun.id, payload: wakePayload });
+    expect(currentIssue).toMatchObject({ executionRunId: null, executionAgentNameKey: null, executionLockedAt: null });
+    expect(currentOwnerIssue.executionRunId).toBe(ownerRun.id);
+    if (comment) {
+      const [currentComment] = await db.select().from(issueComments).where(eq(issueComments.id, comment.id));
+      expect(currentComment).toMatchObject({ body: comment.body, deletedAt: null });
+    }
+    expect(deps.executeRun).not.toHaveBeenCalled();
+  });
+
+  it("still propagates unrelated unique violations from a run claim", async () => {
+    const { agent, pendingIssue, pendingRun } = await routineExecutionClaimCollision();
+    const suffix = randomUUID().replaceAll("-", "");
+    const triggerFunction = `queue_test_raise_unrelated_${suffix}`;
+    const trigger = `queue_test_raise_unrelated_${suffix}`;
+    await db.execute(sql.raw(`CREATE FUNCTION ${triggerFunction}() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.id = '${pendingIssue.id}' THEN
+          RAISE EXCEPTION 'unrelated queue claim uniqueness failure'
+            USING ERRCODE = '23505', CONSTRAINT = 'unrelated_queue_test_uq';
+        END IF;
+        RETURN NEW;
+      END;
+    $$`));
+    await db.execute(sql.raw(`CREATE TRIGGER ${trigger} BEFORE UPDATE OF execution_run_id ON issues
+      FOR EACH ROW EXECUTE FUNCTION ${triggerFunction}()`));
+    try {
+      const deps = callbacks(db);
+      deps.getAgent.mockResolvedValue(agent);
+      await expect(createHeartbeatQueue(db, deps).claimQueuedRun(pendingRun)).rejects.toThrow();
+      const [currentRun] = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, pendingRun.id));
+      const [currentIssue] = await db.select().from(issues).where(eq(issues.id, pendingIssue.id));
+      expect(currentRun).toMatchObject({ status: "queued", startedAt: null });
+      expect(currentIssue.executionRunId).toBeNull();
+    } finally {
+      await db.execute(sql.raw(`DROP TRIGGER IF EXISTS ${trigger} ON issues`));
+      await db.execute(sql.raw(`DROP FUNCTION IF EXISTS ${triggerFunction}()`));
+    }
+  });
 
   it("rechecks a handoff's assignment version under the issue claim lock", async () => {
     const { company, agent, issue, wake, run } = await fixture("queued");

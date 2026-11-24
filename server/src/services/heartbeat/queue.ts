@@ -99,6 +99,7 @@ import {
   notFound,
 } from "../../errors.js";
 import { logger } from "../../middleware/logger.js";
+import { isUniqueViolation } from "../../db-errors.js";
 import { publishLiveEvent } from "../live-events.js";
 import { allocateHeartbeatRunEventSeq } from "../heartbeat-run-events.js";
 import {
@@ -170,6 +171,12 @@ import type { budgetService } from "../budgets.js";
 import type { instanceSettingsService } from "../instance-settings.js";
 import type { createRunDispatch } from "../../modules/run-dispatch/index.js";
 import type { PostCommitEffect as WakeQueuePostCommitEffect, createWakeQueue } from "../../modules/wake-queue/index.js";
+
+const OPEN_ROUTINE_EXECUTION_CONSTRAINT = "issues_open_routine_execution_uq";
+
+function isOpenRoutineExecutionClaimContention(error: unknown): boolean {
+  return isUniqueViolation(error, OPEN_ROUTINE_EXECUTION_CONSTRAINT);
+}
 
 type HeartbeatRun = typeof heartbeatRuns.$inferSelect;
 type HeartbeatRunState = ReturnType<typeof createHeartbeatRunState>;
@@ -1520,7 +1527,13 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
                 : { kind: "stale" as const, run: null };
             })
             .catch((error) => {
-              if (isExternalChatWaitAuthorizationContention(error))
+              // The failed transaction has rolled back all claim writes. Keep
+              // this wake and its comment IDs queued when another issue has
+              // already acquired the routine-execution uniqueness slot.
+              if (
+                isExternalChatWaitAuthorizationContention(error) ||
+                isOpenRoutineExecutionClaimContention(error)
+              )
                 return { kind: "stale" as const, run: null };
               throw error;
             })
@@ -1597,6 +1610,12 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
             await bindClaimedIssueExecution(claimTx as unknown as Db, issueClaim.ownsIssue, claimedRun);
             return claimedRun;
           });
+        }).catch((error) => {
+          // Treat only this named uniqueness race as stale. The transaction
+          // rollback leaves the run and wake queued so startup can retry after
+          // the existing routine execution settles.
+          if (isOpenRoutineExecutionClaimContention(error)) return null;
+          throw error;
         });
     if (!claimed) return null;
 
