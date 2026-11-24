@@ -282,6 +282,12 @@ export async function selectHeartbeatEnvironment(db: Db, input: HeartbeatEnviron
       : selectedEnvironmentId
         ? await environmentsSvc.getById(selectedEnvironmentId)
         : null;
+  if (selectedEnvironmentForConfig?.ownerAgentId && selectedEnvironmentForConfig.ownerAgentId !== agent.id) {
+    throw new ConfigurationIncompleteFailure(
+      "Selected environment is bound to another agent.",
+      { code: "environment_agent_mismatch" },
+    );
+  }
   const nativeChatWorkspaceScope = isDotRun ? null : await findNativeChatWorkspaceScope(db, {
     adapterType: agent.adapterType,
     environmentDriver: selectedEnvironmentForConfig?.driver ?? null,

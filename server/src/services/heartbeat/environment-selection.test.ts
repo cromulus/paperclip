@@ -125,6 +125,26 @@ describe.skipIf(!support.supported)("heartbeat environment selection boundary", 
     expect(result.persistedNativeExecutionInput?.binding.executionWorkspaceId).toBe(input.run.id);
   });
 
+  it("rejects an agent-bound environment selected by a different agent", async () => {
+    const { input } = await fixture();
+    const [owner] = await db.insert(agents).values({
+      companyId: input.agent.companyId,
+      name: "Environment owner",
+      status: "idle",
+    }).returning();
+    const [environment] = await db.insert(environments).values({
+      name: "Owner-only SSH",
+      driver: "ssh",
+      ownerAgentId: owner.id,
+      config: { host: "example.invalid", port: 22, username: "ops", remoteWorkspacePath: "/workspace" },
+    }).returning();
+    input.agent.defaultEnvironmentId = environment.id;
+
+    await expect(selectHeartbeatEnvironment(db, input)).rejects.toMatchObject({
+      resultJson: { code: "environment_agent_mismatch" },
+    });
+  });
+
   it("does not make an archived issue workspace available for reuse", async () => {
     const { input, workspace } = await fixture();
     const saved = await workspace();

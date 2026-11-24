@@ -5,7 +5,7 @@ environments](../feature-map/execution-environments.md).
 
 Feature ID: `execution-environments`.
 
-Review date: 2026-10-12. Source commit: `f981fa3cc10cb8663a87dec60345fbff46d54d0a`.
+Review date: 2026-11-23. Source commit: `4614e6991c20f7071536945a0b891f47a83c7e66`.
 
 This is a source-reviewed baseline of representative operations and known gaps.
 Each capability needs operation-level review before its entire scope can be
@@ -32,17 +32,30 @@ API: `present` — representative operation IDs:
 Agent access: `restricted` — Board read/admin management REST / CLI environment.
 
 Policy: Environment management is instance administrator/board; permitted assignment
-uses agent/project policy.
+uses agent/project policy. A nullable `ownerAgentId` keeps existing rows shared;
+setting it on environment creation binds the target to one same-company agent, and
+the binding is immutable through PATCH. Agent defaults, adapter tests, issue-level
+environment overrides and heartbeat dispatch all reject a different agent.
 
 Evidence: `source-only` — [implementation](../../server/src/routes/environments.ts#L353)
 at the reviewed commit above.
 
-Verification: `not-run` — assert the documented agent denial with an owned test fixture;
-verify any listed agent request/result path separately. A delegated operation needs its
-own policy and access review.
+Verification: `source-only` — ownership checks are covered by the focused
+environment-selection tests and heartbeat selection regression. No live agent SSH
+run has been qualified.
 
 Gaps: API exists; an agent cannot use instance environment management as an ordinary
 company actor.
+
+Scoped agent-binding review (2026-11-23): Board creation may bind a target only to
+an agent in the route company. A bound environment is not accepted as a project or
+instance default, and the heartbeat resolver checks the effective selected target
+again immediately before execution. Existing unbound environments retain their
+prior shared behavior. SSH private keys continue to resolve from an environment
+secret reference inside the server. `ownerAgentId` is a Paperclip authorization
+boundary; it does not protect against a compromised server process or another
+local adapter running under the same OS identity. Keep the SSH principal unprivileged
+and do not grant Docker or host sudo through this binding.
 
 Scoped source review: [environment routes](../../server/src/routes/environments.ts)
 require board organization access for reads and local-implicit board or instance
@@ -70,15 +83,15 @@ Agent access: `partial` — Board environment capabilities endpoint; native run 
 server-selected runtime context.
 
 Policy: Environment management is instance administrator/board; permitted assignment
-uses agent/project policy.
+uses agent/project policy. An owned environment may be selected only for its owner;
+an unbound environment keeps existing shared selection behavior.
 
 Evidence: `source-only` — [implementation](../../server/src/routes/environments.ts#L353)
 at the reviewed commit above.
 
-Verification: `not-run` — exercise a listed permitted operation with actual agent
-credentials/run context; inspect its result and applicable persistence/attribution.
-Assert the relevant denied actor, owner, company or mode from Policy. Review the
-remaining operations before qualifying the whole capability.
+Verification: `source-only` — focused API and heartbeat tests verify an owned target
+rejects a non-owner and a shared target remains selectable. No live remote command
+has run under the Systems Operations agent yet.
 
 Gaps: Endpoint discovery and already-bound run capabilities differ; decide whether a
 safe agent-readable capability listing is desired.

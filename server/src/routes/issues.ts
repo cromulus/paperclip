@@ -4514,13 +4514,14 @@ export function issueRoutes(
   async function assertIssueEnvironmentSelection(
     companyId: string,
     environmentId: string | null | undefined,
+    agentId: string | null | undefined,
   ) {
     if (environmentId === undefined || environmentId === null) return;
     await assertEnvironmentSelectionForCompany(
       environmentsSvc,
       companyId,
       environmentId,
-      { allowedDrivers: ["local", "ssh", "sandbox"] },
+      { allowedDrivers: ["local", "ssh", "sandbox"], agentId },
     );
   }
 
@@ -12445,6 +12446,7 @@ export function issueRoutes(
       await assertIssueEnvironmentSelection(
         companyId,
         createBody.executionWorkspaceSettings?.environmentId,
+        createAssignmentScope.assigneeAgentId,
       );
 
       const executionPolicy = applyActorMonitorScheduledBy(
@@ -12806,6 +12808,7 @@ export function issueRoutes(
       await assertIssueEnvironmentSelection(
         parent.companyId,
         createBody.executionWorkspaceSettings?.environmentId,
+        childAssignmentScope.assigneeAgentId,
       );
 
       const actor = getActorInfo(req);
@@ -13041,6 +13044,7 @@ export function issueRoutes(
         await assertIssueEnvironmentSelection(
           sourceIssue.companyId,
           childBody.executionWorkspaceSettings?.environmentId,
+          childBody.assigneeAgentId,
         );
       }
 
@@ -13842,6 +13846,7 @@ export function issueRoutes(
       await assertIssueEnvironmentSelection(
         existing.companyId,
         updateFields.executionWorkspaceSettings?.environmentId,
+        normalizedAssigneeAgentId === undefined ? existing.assigneeAgentId : normalizedAssigneeAgentId,
       );
       const requestedAssigneeAgentId =
         normalizedAssigneeAgentId === undefined

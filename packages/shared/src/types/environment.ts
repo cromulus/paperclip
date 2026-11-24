@@ -84,6 +84,7 @@ export interface Environment {
   description: string | null;
   driver: EnvironmentDriver;
   status: EnvironmentStatus;
+  ownerAgentId: string | null;
   config: Record<string, unknown>;
   envVars: AgentEnvConfig;
   metadata: Record<string, unknown> | null;

@@ -102,6 +102,11 @@ export function agentEnvironmentTestService(db: Db, pluginWorkerManager?: Plugin
         release: noopRelease,
       };
     }
+    if (requestedEnvironment.ownerAgentId && requestedEnvironment.ownerAgentId !== input.agentId) {
+      throw forbidden("The selected environment is bound to another agent.", {
+        code: "environment_agent_mismatch",
+      });
+    }
 
     // Managed-sandbox-only policy: redirect a Test that would run on the local
     // host onto the platform-managed sandbox, the same as a real run does
@@ -470,7 +475,8 @@ export function agentEnvironmentTestService(db: Db, pluginWorkerManager?: Plugin
   async function assertAdapterTestEnvironmentForCompany(
     companyId: string,
     environmentId: string,
-    adapterType?: string,
+    adapterType: string | undefined,
+    agentId: string | null,
   ): Promise<void> {
     const environment = await environmentsSvc.getById(environmentId);
     if (!environment) {
@@ -486,6 +492,7 @@ export function agentEnvironmentTestService(db: Db, pluginWorkerManager?: Plugin
     }
     await assertEnvironmentSelectionForCompany(environmentsSvc, companyId, environmentId, {
       allowedDrivers: adapterType === "paperclip_runner" ? [...ADAPTER_TEST_ALLOWED_ENVIRONMENT_DRIVERS, "plugin"] : ADAPTER_TEST_ALLOWED_ENVIRONMENT_DRIVERS,
+      agentId,
     });
   }
 

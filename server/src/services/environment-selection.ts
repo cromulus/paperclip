@@ -1,10 +1,11 @@
-import { unprocessable } from "../errors.js";
+import { forbidden, unprocessable } from "../errors.js";
 
 export async function assertEnvironmentSelectionForCompany(
   environmentsSvc: {
     getById(environmentId: string): Promise<{
       id: string;
       driver: string;
+      ownerAgentId?: string | null;
       status?: string | null;
       config: Record<string, unknown> | null;
     } | null>;
@@ -14,6 +15,7 @@ export async function assertEnvironmentSelectionForCompany(
   options?: {
     allowedDrivers?: string[];
     allowedSandboxProviders?: string[];
+    agentId?: string | null;
   },
 ) {
   if (environmentId === undefined || environmentId === null) return;
@@ -23,6 +25,11 @@ export async function assertEnvironmentSelectionForCompany(
   }
   if (environment.status === "archived") {
     throw unprocessable("Environment is archived.");
+  }
+  if (environment.ownerAgentId && environment.ownerAgentId !== options?.agentId) {
+    throw forbidden("The selected environment is bound to another agent.", {
+      code: "environment_agent_mismatch",
+    });
   }
   if (options?.allowedDrivers && !options.allowedDrivers.includes(environment.driver)) {
     throw unprocessable(

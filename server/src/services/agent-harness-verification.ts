@@ -65,7 +65,7 @@ export function agentHarnessVerificationService(db: Db, manager: PluginWorkerMan
     config = (await secrets.resolveAdapterConfigForRuntime(agent.companyId, config, context, { adapterType: agent.adapterType })).config;
     const environmentId = await tests.resolveAdapterTestEnvironmentId(agent.companyId, agent.defaultEnvironmentId, agent.adapterType === "paperclip_runner" && config.provider === "acpx" && config.acpxAgent === "copilot");
     if (environmentId) {
-      await tests.assertAdapterTestEnvironmentForCompany(agent.companyId, environmentId, agent.adapterType);
+      await tests.assertAdapterTestEnvironmentForCompany(agent.companyId, environmentId, agent.adapterType, agent.id);
       const environment = await environments.getById(environmentId);
       const env = Object.fromEntries(Object.entries(binding ? stripAiAuthBindings(environment?.envVars) : parseObject(environment?.envVars))
         .filter(([key]) => !isForbiddenConfigEnvKey(key)));

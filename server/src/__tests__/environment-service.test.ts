@@ -137,6 +137,25 @@ describeEmbeddedPostgres("environmentService leases", () => {
     expect((await svc.update(created.id, { metadata: null }))?.metadata).toBeNull();
   });
 
+  it("persists the immutable agent owner when creating an environment", async () => {
+    const ownerAgentId = randomUUID();
+    const created = await svc.create({
+      name: "Agent-bound SSH",
+      driver: "ssh",
+      ownerAgentId,
+      config: {
+        host: "fixture.example.test",
+        port: 22,
+        username: "fixture",
+        remoteWorkspacePath: "/srv/paperclip",
+      },
+    });
+
+    expect(created.ownerAgentId).toBe(ownerAgentId);
+    const [row] = await db.select().from(environments).where(eq(environments.id, created.id));
+    expect(row?.ownerAgentId).toBe(ownerAgentId);
+  });
+
   it.each(["clear", "replace", "unrelated", "status", "config", "driver"] as const)(
     "handles %s saves atomically after a concurrent platform probe record", async operation => {
       const companyId = await seedCompany();
