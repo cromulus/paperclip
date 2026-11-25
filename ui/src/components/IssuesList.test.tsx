@@ -1577,7 +1577,7 @@ describe("IssuesList", () => {
     let holdNextRead = false;
     let releaseRead: (() => void) | undefined;
     mockIssuesApi.list.mockImplementation(async (_companyId, filters) => {
-      if (filters.parentId !== parent.id) return [];
+      if (filters.parentId !== parent.id && !filters.parentIds?.includes(parent.id)) return [];
       const rows = children.slice(filters.offset ?? 0, (filters.offset ?? 0) + filters.limit);
       if (holdNextRead) {
         holdNextRead = false;

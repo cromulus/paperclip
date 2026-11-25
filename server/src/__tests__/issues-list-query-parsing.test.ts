@@ -57,3 +57,62 @@ describeEmbeddedPostgres("issue list status query parsing", () => {
     expect(await listStatuses("")).toEqual(["done", "in_progress", "todo"]);
   });
 });
+
+describeEmbeddedPostgres("issue list batched hierarchy filters", () => {
+  const ctx = useEmbeddedPostgres("paperclip-issues-list-hierarchy-batch-", {
+    resetEach: resetCompanyIssueFixtures,
+  });
+
+  it("returns only company-scoped children for the requested parents", async () => {
+    const company = await seedCompanyWithBoardAccess(ctx.db, "Batched hierarchy");
+    const otherCompany = await seedCompanyWithBoardAccess(ctx.db, "Other hierarchy");
+    const parentA = randomUUID();
+    const parentB = randomUUID();
+    const outsideParent = randomUUID();
+    const childA1 = randomUUID();
+    const childA2 = randomUUID();
+    const childB = randomUUID();
+    const outsideChild = randomUUID();
+    await ctx.db.insert(issues).values([
+      { id: parentA, companyId: company.companyId, title: "Parent A", status: "todo", priority: "medium" },
+      { id: parentB, companyId: company.companyId, title: "Parent B", status: "todo", priority: "medium" },
+      { id: outsideParent, companyId: otherCompany.companyId, title: "Outside parent", status: "todo", priority: "medium" },
+      { id: childA1, companyId: company.companyId, parentId: parentA, title: "Child A1", status: "todo", priority: "medium" },
+      { id: childA2, companyId: company.companyId, parentId: parentA, title: "Child A2", status: "todo", priority: "medium" },
+      { id: childB, companyId: company.companyId, parentId: parentB, title: "Child B", status: "todo", priority: "medium" },
+      { id: outsideChild, companyId: otherCompany.companyId, parentId: outsideParent, title: "Outside child", status: "todo", priority: "medium" },
+    ]);
+
+    const path = `/api/companies/${company.companyId}/issues?parentIds=${[parentA, parentB, outsideParent].join(",")}&limit=100`;
+    const allChildren = await request(routeApp(ctx.db, company.actor, issueRoutes))
+      .get(path)
+      .expect(200);
+    expect((allChildren.body as { id: string; parentId: string }[])
+      .map((row) => [row.parentId, row.id]).sort()).toEqual([
+      [parentA, childA1], [parentA, childA2], [parentB, childB],
+    ].sort());
+
+    const ancestorBatch = await request(routeApp(ctx.db, company.actor, issueRoutes))
+      .get(`/api/companies/${company.companyId}/issues?ids=${[parentA, parentB, outsideParent].join(",")}&limit=100`)
+      .expect(200);
+    expect((ancestorBatch.body as { id: string }[]).map((row) => row.id).sort()).toEqual([parentA, parentB].sort());
+
+    const onePerParent = await request(routeApp(ctx.db, company.actor, issueRoutes))
+      .get(`${path}&onePerParent=true`)
+      .expect(200);
+    const uniqueParents = new Set((onePerParent.body as { parentId: string }[]).map((row) => row.parentId));
+    expect(uniqueParents).toEqual(new Set([parentA, parentB]));
+    expect(onePerParent.body).toHaveLength(2);
+  });
+
+  it("rejects malformed and oversized parent batches", async () => {
+    const company = await seedCompanyWithBoardAccess(ctx.db, "Batched hierarchy validation");
+    const app = routeApp(ctx.db, company.actor, issueRoutes);
+    await request(app).get(`/api/companies/${company.companyId}/issues?parentIds=not-a-uuid`).expect(400);
+    await request(app).get(`/api/companies/${company.companyId}/issues?ids=not-a-uuid`).expect(400);
+    const tooMany = Array.from({ length: 101 }, () => randomUUID()).join(",");
+    await request(app).get(`/api/companies/${company.companyId}/issues?parentIds=${tooMany}`).expect(400);
+    await request(app).get(`/api/companies/${company.companyId}/issues?ids=${tooMany}`).expect(400);
+    await request(app).get(`/api/companies/${company.companyId}/issues?onePerParent=true`).expect(400);
+  });
+});

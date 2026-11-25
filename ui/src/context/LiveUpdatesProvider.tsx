@@ -1278,6 +1278,25 @@ function invalidateHeartbeatProgressQueries(
   }
 }
 
+const DASHBOARD_SUMMARY_ACTIVITY_ENTITIES = new Set([
+  "issue",
+  "agent",
+  "approval",
+  "heartbeat_run",
+  "cost_event",
+  "company",
+  "project",
+  "budget",
+  "budget_incident",
+]);
+
+const SIDEBAR_BADGE_ACTIVITY_ENTITIES = new Set([
+  "agent",
+  "approval",
+  "heartbeat_run",
+  "join_request",
+]);
+
 function invalidateActivityQueries(
   queryClient: ReturnType<typeof useQueryClient>,
   companyId: string,
@@ -1286,17 +1305,27 @@ function invalidateActivityQueries(
   options?: { pathname?: string; isForegrounded?: boolean },
 ) {
   queryClient.invalidateQueries({ queryKey: queryKeys.activity(companyId) });
-  queryClient.invalidateQueries({ queryKey: queryKeys.dashboard(companyId) });
-  queryClient.invalidateQueries({
-    queryKey: queryKeys.sidebarBadges(companyId),
-  });
-
   const entityType = readString(payload.entityType);
   const entityId = readString(payload.entityId);
   const action = readString(payload.action);
   const actorType = readString(payload.actorType);
   const actorId = readString(payload.actorId);
   const details = readRecord(payload.details);
+  // Activity history is universal, but the dashboard summary and badge count
+  // are derived from a small set of operational records. Avoid refetching
+  // those heavier queries for unrelated audit entries such as skill/catalog
+  // updates; their owning-resource invalidations are handled below.
+  if (entityType && DASHBOARD_SUMMARY_ACTIVITY_ENTITIES.has(entityType)) {
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard(companyId) });
+  }
+  if (
+    (entityType && SIDEBAR_BADGE_ACTIVITY_ENTITIES.has(entityType)) ||
+    action?.startsWith("approval.") ||
+    action?.startsWith("join_request.") ||
+    action?.startsWith("heartbeat_run.")
+  ) {
+    queryClient.invalidateQueries({ queryKey: queryKeys.sidebarBadges(companyId) });
+  }
   const ownActorActivity =
     (actorType === "user" &&
       !!currentActor.userId &&

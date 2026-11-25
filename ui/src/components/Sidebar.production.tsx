@@ -22,7 +22,7 @@ import {
   LayoutGrid,
 } from "lucide-react";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { SidebarSection } from "./SidebarSection";
 import { SidebarNavItem } from "./SidebarNavItem.production";
 import { SidebarAgents } from "./SidebarAgents.production";
@@ -43,6 +43,7 @@ import { cn, SIDEBAR_RAIL_HIDDEN_LABEL } from "../lib/utils";
 import { PluginSlotOutlet } from "@/plugins/slots";
 import { PluginLauncherOutlet } from "@/plugins/launchers";
 import { SidebarCompanyMenu } from "./SidebarCompanyMenu.production";
+import { prefetchSidebarRoute } from "../lib/sidebar-route-prefetch";
 
 export function Sidebar() {
   const { openNewIssue } = useDialogActions();
@@ -51,6 +52,8 @@ export function Sidebar() {
   const [workOpen, setWorkOpen] = useState(true);
   const [companyOpen, setCompanyOpen] = useState(true);
   const { selectedCompanyId, selectedCompany } = useCompany();
+  const queryClient = useQueryClient();
+  const prefetch = (to: string) => () => prefetchSidebarRoute(to, selectedCompanyId, queryClient);
   const { collapsed, peeking } = useSidebar();
   const rail = collapsed && !peeking;
   const inboxBadge = useInboxBadge(selectedCompanyId);
@@ -151,7 +154,7 @@ export function Sidebar() {
               collapsed rail, where the old header icon was dropped entirely.
               Cmd/Ctrl+K remains the keyboard path (command palette). */}
           <SidebarNavItem to="/search" label="Search" icon={Search} />
-          <SidebarNavItem to="/dashboard" label="Dashboard" icon={LayoutDashboard} liveCount={liveRunCount} />
+          <SidebarNavItem to="/dashboard" label="Dashboard" icon={LayoutDashboard} liveCount={liveRunCount} onIntent={prefetch("/dashboard")} />
           <SidebarNavItem
             to="/inbox"
             label="Inbox"
@@ -179,7 +182,7 @@ export function Sidebar() {
         </div>
 
         <SidebarSection label="Work" collapsible={{ open: workOpen, onOpenChange: setWorkOpen }}>
-          <SidebarNavItem to="/issues" label="Tasks" icon={CircleDot} />
+          <SidebarNavItem to="/issues" label="Tasks" icon={CircleDot} onIntent={prefetch("/issues")} />
           {showCases ? (
             <SidebarNavItem to="/cases" label="Cases" icon={Layers} textBadge="beta" />
           ) : null}
@@ -228,7 +231,7 @@ export function Sidebar() {
 
         <SidebarSection label="Company" collapsible={{ open: companyOpen, onOpenChange: setCompanyOpen }}>
           <SidebarNavItem to="/org" label="Org" icon={Network} />
-          {showApps ? <SidebarNavItem to="/apps" label="Connectors" icon={Unplug} /> : null}
+          {showApps ? <SidebarNavItem to="/apps" label="Connectors" icon={Unplug} onIntent={prefetch("/apps")} /> : null}
           <SidebarNavItem to="/timeline" label="Timeline" icon={GanttChartSquare} />
           <SidebarNavItem to="/costs" label="Costs" icon={DollarSign} />
           {/* One entry — /audit merged into the rich Activity feed (PAP-16302). */}

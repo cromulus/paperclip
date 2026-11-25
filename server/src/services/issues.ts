@@ -1854,6 +1854,9 @@ export interface IssueFilters {
   workspaceId?: string;
   executionWorkspaceId?: string;
   parentId?: string;
+  ids?: string[];
+  parentIds?: string[];
+  onePerParent?: boolean;
   descendantOf?: string;
   createdFromIssueId?: string;
   labelId?: string;
@@ -6352,6 +6355,8 @@ async function blockedInboxIssueConditions(
       eq(issues.executionWorkspaceId, filters.executionWorkspaceId),
     );
   if (filters?.parentId) conditions.push(eq(issues.parentId, filters.parentId));
+  if (filters?.ids?.length) conditions.push(inArray(issues.id, filters.ids));
+  if (filters?.parentIds?.length) conditions.push(inArray(issues.parentId, filters.parentIds));
   if (filters?.originKind)
     conditions.push(eq(issues.originKind, filters.originKind));
   if (filters?.originKindPrefix)
@@ -8135,6 +8140,10 @@ export function issueService(db: Db) {
       }
       if (filters?.parentId)
         conditions.push(eq(issues.parentId, filters.parentId));
+      if (filters?.ids?.length)
+        conditions.push(inArray(issues.id, filters.ids));
+      if (filters?.parentIds?.length)
+        conditions.push(inArray(issues.parentId, filters.parentIds));
       if (filters?.originKind)
         conditions.push(eq(issues.originKind, filters.originKind));
       if (filters?.originKindPrefix)
@@ -8191,17 +8200,21 @@ export function issueService(db: Db) {
             SELECT m.id, ${taskSearchScore(taskSearch)} AS score FROM matched m
           ) task_search`, sql`task_search.id = ${issues.id}`)
         : issueSource;
-      const baseQuery = searchedSource
-        .where(and(...conditions))
-        .orderBy(
-          ...issueListOrderBy(companyId, {
-            hasSearch,
-            priorityOrder,
-            searchOrder,
-            sortField: filters?.sortField,
-            sortDir: filters?.sortDir,
-          }),
-        );
+      const issueListOrder = issueListOrderBy(companyId, {
+        hasSearch,
+        priorityOrder,
+        searchOrder,
+        sortField: filters?.sortField,
+        sortDir: filters?.sortDir,
+      });
+      const baseQuery = filters?.onePerParent && filters.parentIds?.length
+        ? db.selectDistinctOn([issues.parentId], issueListSelect)
+          .from(issues)
+          .where(and(...conditions))
+          .orderBy(issues.parentId, ...issueListOrder)
+        : searchedSource
+          .where(and(...conditions))
+          .orderBy(...issueListOrder);
       const pageQuery =
         offset > 0
           ? limit === undefined
@@ -8405,6 +8418,10 @@ export function issueService(db: Db) {
         );
       if (filters?.parentId)
         conditions.push(eq(issues.parentId, filters.parentId));
+      if (filters?.ids?.length)
+        conditions.push(inArray(issues.id, filters.ids));
+      if (filters?.parentIds?.length)
+        conditions.push(inArray(issues.parentId, filters.parentIds));
       if (filters?.originKind)
         conditions.push(eq(issues.originKind, filters.originKind));
       if (filters?.originKindPrefix)

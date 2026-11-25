@@ -67,6 +67,8 @@ interface SidebarNavItemProps {
   trailingLabel?: string;
   /** Rendered inside the right-aligned status cluster, before the live dot. */
   liveAccessory?: ReactNode;
+  /** Warm the destination after keyboard or pointer intent, never on idle render. */
+  onIntent?: () => void;
 }
 
 export function SidebarNavItem({
@@ -88,6 +90,7 @@ export function SidebarNavItem({
   trailing,
   trailingLabel,
   liveAccessory,
+  onIntent,
 }: SidebarNavItemProps) {
   const { isMobile, setSidebarOpen, collapsed, peeking } = useSidebar();
   // A fixed-width contextual pane (SecondarySidebar) forces full labels even
@@ -120,6 +123,9 @@ export function SidebarNavItem({
       state={SIDEBAR_SCROLL_RESET_STATE}
       end={end}
       aria-label={railAriaLabel}
+      onMouseEnter={onIntent}
+      onFocus={onIntent}
+      onPointerDown={onIntent}
       onClick={() => { if (isMobile) setSidebarOpen(false); }}
       className={({ isActive }) =>
         cn(

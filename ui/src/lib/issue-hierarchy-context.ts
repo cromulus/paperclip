@@ -1,5 +1,47 @@
 import type { Issue } from "@paperclipai/shared";
 
+const PARENT_ID_BATCH_SIZE = 100;
+
+function chunkIds(ids: string[]): string[][] {
+  const chunks: string[][] = [];
+  for (let offset = 0; offset < ids.length; offset += PARENT_ID_BATCH_SIZE) {
+    chunks.push(ids.slice(offset, offset + PARENT_ID_BATCH_SIZE));
+  }
+  return chunks;
+}
+
+/** Read each ancestor level in bounded ID batches instead of one GET per row. */
+export async function loadIssueHierarchyAncestors(
+  companyId: string,
+  parentIds: string[],
+  rowBudget: number,
+  readIssues: (ids: string[]) => Promise<Issue[]>,
+): Promise<Issue[]> {
+  const context: Issue[] = [];
+  const requested = new Set<string>();
+  const included = new Set<string>();
+  let frontier = [...new Set(parentIds.filter(Boolean))];
+  let rounds = 0;
+  const maxRounds = Math.min(16, Math.max(1, rowBudget));
+
+  while (frontier.length > 0 && context.length < rowBudget && rounds < maxRounds) {
+    rounds += 1;
+    const current = [...new Set(frontier.filter((id) => !requested.has(id)))];
+    frontier = [];
+    for (const id of current) requested.add(id);
+    const rows = (await Promise.all(chunkIds(current).map((ids) => readIssues(ids)))).flat();
+    for (const issue of rows) {
+      if (issue.companyId !== companyId || included.has(issue.id)) continue;
+      included.add(issue.id);
+      context.push(issue);
+      if (issue.parentId && !requested.has(issue.parentId)) frontier.push(issue.parentId);
+      if (context.length >= rowBudget) break;
+    }
+  }
+
+  return context;
+}
+
 /** Context never promotes an unrelated or orphaned automated task to a result. */
 export function includeIssueHierarchyContext(matches: Issue[], context: Issue[]): Issue[] {
   const byId = new Map([...context, ...matches].map((issue) => [issue.id, issue]));
@@ -37,28 +79,58 @@ export async function loadIssueHierarchyChildren(
   matches: Issue[],
   collapsedParents: string[],
   rowBudget: number,
-  readChildren: (parentId: string, limit: number, offset: number) => Promise<Issue[]>,
+  readChildren: (parentIds: string[], limit: number, onePerParent?: boolean) => Promise<Issue[]>,
 ): Promise<{ issues: Issue[]; hasMore: boolean }> {
   const context: Issue[] = [];
-  const queue = matches.map((issue) => ({ issue, offset: 0 }));
-  const visited = new Set<string>();
+  let frontier = matches;
+  const visitedParents = new Set<string>();
   const fetched = new Set<string>();
-  let requests = 0;
-  while (queue.length > 0 && context.length < rowBudget && requests < rowBudget) {
-    const { issue, offset } = queue.shift()!;
-    if (offset === 0 && visited.has(issue.id)) continue;
-    visited.add(issue.id);
-    const collapsed = collapsedParents.includes(issue.id);
-    const limit = collapsed ? 1 : Math.min(100, rowBudget - context.length);
-    const rows = await readChildren(issue.id, limit, offset);
-    requests += 1;
+  let batchRounds = 0;
+  let hasMore = false;
+  const maxBatchRounds = Math.min(16, Math.max(1, rowBudget));
+  while (frontier.length > 0 && context.length < rowBudget && batchRounds < maxBatchRounds) {
+    batchRounds += 1;
+    const parents = frontier.filter((issue) => !visitedParents.has(issue.id));
+    frontier = [];
+    if (parents.length === 0) break;
+    for (const parent of parents) visitedParents.add(parent.id);
+
+    const collapsedParentIds = parents
+      .filter((parent) => collapsedParents.includes(parent.id))
+      .map((parent) => parent.id);
+    const expandedParentIds = parents
+      .filter((parent) => !collapsedParents.includes(parent.id))
+      .map((parent) => parent.id);
+    const remaining = Math.max(1, rowBudget - context.length);
+
+    const [expandedBatches, collapsedBatches] = await Promise.all([
+      Promise.all(chunkIds(expandedParentIds).map((parentIds) => readChildren(parentIds, remaining))),
+      Promise.all(chunkIds(collapsedParentIds).map((parentIds) => readChildren(parentIds, parentIds.length, true))),
+    ]);
+    const expandedRows = expandedBatches.flat();
+    const collapsedRows = collapsedBatches.flat();
+    if (expandedRows.length >= remaining) hasMore = true;
+
+    const allowedCollapsedRows = new Map<string, Issue>();
+    for (const child of collapsedRows) {
+      if (child.parentId && !allowedCollapsedRows.has(child.parentId)) {
+        allowedCollapsedRows.set(child.parentId, child);
+      }
+    }
+    const rows = [
+      ...expandedRows,
+      ...allowedCollapsedRows.values(),
+    ];
     for (const child of rows) {
       if (child.companyId !== companyId || fetched.has(child.id)) continue;
       fetched.add(child.id);
       context.push(child);
-      if (!collapsed) queue.push({ issue: child, offset: 0 });
+      if (child.parentId && !collapsedParentIds.includes(child.parentId)) frontier.push(child);
+      if (context.length >= rowBudget) {
+        hasMore = hasMore || frontier.length > 0 || expandedRows.length >= remaining;
+        break;
+      }
     }
-    if (!collapsed && rows.length === limit) queue.unshift({ issue, offset: offset + rows.length });
   }
-  return { issues: context, hasMore: queue.length > 0 };
+  return { issues: context, hasMore: hasMore || frontier.length > 0 };
 }

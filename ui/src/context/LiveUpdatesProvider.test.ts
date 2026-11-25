@@ -25,6 +25,18 @@ describe("LiveUpdatesProvider issue invalidation", () => {
     for (const queryKey of [queryKeys.skillSources.all('company-1'), queryKeys.skillSources.projects('company-1'), queryKeys.companySkills.list('company-1')]) {
       expect(invalidate).toHaveBeenCalledWith({ queryKey });
     }
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: queryKeys.dashboard("company-1") });
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: queryKeys.sidebarBadges("company-1") });
+    client.clear();
+  });
+
+  it("refreshes dashboard counts for issues but not for unrelated company resources", () => {
+    const client = new QueryClient();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    __liveUpdatesTestUtils.invalidateActivityQueries(client, "company-1", {
+      entityType: "issue", entityId: "issue-1", action: "issue.updated",
+    }, { userId: "user-1", agentId: null });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.dashboard("company-1") });
     client.clear();
   });
   it("refreshes personal membership state when a primary changes on another device", () => {

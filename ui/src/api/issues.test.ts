@@ -148,6 +148,20 @@ describe("issuesApi.list", () => {
     );
   });
 
+  it("batches task hierarchy child reads by parent", async () => {
+    await issuesApi.list("company-1", {
+      parentIds: ["parent-1", "parent-2"],
+      ids: ["issue-1", "issue-2"],
+      onePerParent: true,
+      includeRoutineExecutions: true,
+      limit: 2,
+    });
+
+    expect(mockApi.get).toHaveBeenCalledWith(
+      "/companies/company-1/issues?ids=issue-1%2Cissue-2&parentIds=parent-1%2Cparent-2&onePerParent=true&includeRoutineExecutions=true&limit=2",
+    );
+  });
+
   it("passes generic workspaceId filters through to the company issues endpoint", async () => {
     await issuesApi.list("company-1", {
       workspaceId: "workspace-1",

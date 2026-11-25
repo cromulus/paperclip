@@ -8301,6 +8301,41 @@ export function issueRoutes(
     const sortDir = req.query.sortDir as string | undefined;
     const view = req.query.view as string | undefined;
     const compactView = view === "compact";
+    const rawParentIds = req.query.parentIds;
+    const parentIds = rawParentIds === undefined
+      ? undefined
+      : (Array.isArray(rawParentIds) ? rawParentIds : [rawParentIds])
+        .flatMap((value) => typeof value === "string" ? value.split(",") : [])
+        .map((value) => value.trim())
+        .filter(Boolean);
+    const rawIds = req.query.ids;
+    const ids = rawIds === undefined
+      ? undefined
+      : (Array.isArray(rawIds) ? rawIds : [rawIds])
+        .flatMap((value) => typeof value === "string" ? value.split(",") : [])
+        .map((value) => value.trim())
+        .filter(Boolean);
+    const onePerParent = parseOptionalBooleanQuery(req.query.onePerParent);
+    if (onePerParent === null) {
+      res.status(400).json({ error: "onePerParent must be true or false when provided" });
+      return;
+    }
+    if (rawParentIds !== undefined && (
+      !parentIds || parentIds.length === 0 || parentIds.length > 100 || parentIds.some((id) => !isUuidLike(id))
+    )) {
+      res.status(400).json({ error: "parentIds must contain 1 to 100 UUIDs" });
+      return;
+    }
+    if (rawIds !== undefined && (
+      !ids || ids.length === 0 || ids.length > 100 || ids.some((id) => !isUuidLike(id))
+    )) {
+      res.status(400).json({ error: "ids must contain 1 to 100 UUIDs" });
+      return;
+    }
+    if (onePerParent && (!parentIds?.length || req.query.q || attention !== undefined)) {
+      res.status(400).json({ error: "onePerParent requires parentIds and cannot be combined with search or attention" });
+      return;
+    }
     const hasPlanDocument = parseOptionalBooleanQuery(
       req.query.hasPlanDocument,
     );
@@ -8464,6 +8499,9 @@ export function issueRoutes(
         string | undefined,
       parentId: (req.query.parentId ?? req.query.parentIssueId) as
         string | undefined,
+      ids,
+      parentIds,
+      onePerParent: onePerParent === true,
       descendantOf: req.query.descendantOf as string | undefined,
       createdFromIssueId: req.query.createdFromIssueId as string | undefined,
       labelId: req.query.labelId as string | undefined,

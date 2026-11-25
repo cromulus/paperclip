@@ -90,6 +90,12 @@ export type IssueListFilters = {
   status?: string;
   projectId?: string;
   parentId?: string;
+  /** Batch read of exact issue IDs for hierarchy ancestor hydration. */
+  ids?: string[];
+  /** Batch children lookup for task-hierarchy context. Capped by the server. */
+  parentIds?: string[];
+  /** Return at most one child for each requested parent. Requires parentIds. */
+  onePerParent?: boolean;
   assigneeAgentId?: string;
   participantAgentId?: string;
   assigneeUserId?: string;
@@ -125,6 +131,9 @@ function issueListSearchParams(filters?: IssueListFilters) {
   if (filters?.status) params.set("status", filters.status);
   if (filters?.projectId) params.set("projectId", filters.projectId);
   if (filters?.parentId) params.set("parentId", filters.parentId);
+  if (filters?.ids?.length) params.set("ids", filters.ids.join(","));
+  if (filters?.parentIds?.length) params.set("parentIds", filters.parentIds.join(","));
+  if (filters?.onePerParent) params.set("onePerParent", "true");
   if (filters?.assigneeAgentId)
     params.set("assigneeAgentId", filters.assigneeAgentId);
   if (filters?.participantAgentId)
