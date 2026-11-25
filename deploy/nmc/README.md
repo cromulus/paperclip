@@ -1,6 +1,6 @@
 # NMC production source build
 
-The November 25 upgrade integrates upstream `304854ee9926dfe677e98c282e1dc08dda0000ad`
+The November 25 upgrade integrates upstream `8e8c1b9f4da48debed82ab448b0eaf486c68781b`
 and the retained NMC production source changes. The root Dockerfile builds the UI,
 server, adapters, and Runner together. The NMC image stage also builds the
 installed wiki plugin against this revision of the plugin SDK. Remove the legacy
@@ -28,7 +28,7 @@ Build from a clean committed checkout:
 
 ```sh
 revision=$(git rev-parse HEAD)
-upstream=304854ee9926dfe677e98c282e1dc08dda0000ad
+upstream=8e8c1b9f4da48debed82ab448b0eaf486c68781b
 docker build --target production \
   --build-arg PAPERCLIP_BUILD_COMMIT="$revision" \
   --build-arg PAPERCLIP_RUNNER_SOURCE_REVISION="$revision" \
@@ -68,3 +68,19 @@ production acceptance.
 
 `master` has a daily draft upstream sync PR workflow. Sync does not deploy;
 production promotion requires this migration and runtime verification process.
+
+## SSO sidecar process boundary
+
+Upstream checks the client process before granting implicit local board access.
+A proxy in another PID namespace cannot pass that inspection. Mount a private,
+read-only random secret file at `/run/secrets/nmc-proxy-owner-token` and set
+`NMC_PROXY_OWNER_TOKEN_FILE` to that path. Generate at least 32 random bytes.
+The private front-door nginx must overwrite `X-NMC-Proxy-Token` with that secret
+only on the SSO-protected route. OAuth2 Proxy supplies the owner identity and
+group headers after authentication. The native/public ingress must not inject
+this credential. Do not put the value in Git, command arguments, or logs.
+
+The server requires the secret, loopback transport, configured owner subject,
+email, host, HTTPS forwarding, and `nmc_atelier` group together. This applies to
+HTTP and live WebSocket connections. Bearer authentication remains authoritative;
+missing or mismatched credentials fail closed. HTTP logs redact the secret.

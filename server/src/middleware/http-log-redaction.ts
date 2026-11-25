@@ -1,4 +1,5 @@
 export const HTTP_LOG_REDACT_PATHS = [
+  'req.headers["x-nmc-proxy-token"]',
   "req.headers.authorization",
   'req.headers["x-paperclip-source-run-token"]',
   "res.headers.location",

@@ -1,3 +1,4 @@
+import { authenticatedProxyOwner } from "./proxy-owner.js";
 import { notifyMuseContactVerification } from "../modules/external-agents/index.js";
 import { idleApiActivity } from "../services/idle-api-activity.js";
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -363,6 +364,7 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
         }
       }
       if (req.actor.source === "local_implicit"
+        && !authenticatedProxyOwner(req)
         && !(await localBoundary?.grantsImplicitBoard(req.socket))) {
         req.actor = { type: "none", source: "none" };
       }
