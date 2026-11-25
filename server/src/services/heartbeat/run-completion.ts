@@ -15,11 +15,13 @@ import { settledResponsePublicationSql } from "../native-runtime/native-response
 import { notifyChatRunMilestones } from "../chat-run-milestone-notifications.js";
 import { measureRunPhase } from "../execution-preparation-timing.js";
 import { PROJECT_ACCESS_DENIED, ProjectAccessDeniedError } from "../project-access-denial.js";
+import { ANTIGRAVITY_SWARM_UNAVAILABLE } from "../antigravity-swarm-refusal.js";
+import { PaperclipRunnerProviderProfileError } from "../native-runtime/provider-profile.js";
 import { pendingCaseHandoffForRun } from "./case-handoff-lifecycle.js";
 import { NON_RETRYABLE_PREFLIGHT_FAILURE_CODES, isHeartbeatRunTerminalStatus } from "./run-lifecycle.js";
 import { ChatControlRecoveryUnresolvedError } from "./queue.js";
 import { readTransientRecoveryContractFromRun, readHeartbeatRunErrorFamily, isTransientWorkspacePreparationCode } from "./retries.js";
-import { RemoteWorkspacePreparationTimeoutError, REMOTE_WORKSPACE_RESTORE_FAILED_CODE, findRemoteWorkspaceRestoreError } from "../remote-workspace-transport.js";
+import { RemoteWorkspacePreparationTimeoutError, REMOTE_WORKSPACE_RESTORE_FAILED_CODE, findRemoteWorkspaceRestoreError, isRemoteWorkspaceSandboxDiskFullError } from "../remote-workspace-transport.js";
 import { escalateRemoteWorkspaceRestoreFailure } from "../remote-workspace-restore-recovery.js";
 import { findReusableSandboxResumeError } from "../reusable-sandbox-resume-error.js";
 import { findPluginWorkerUnavailableError, PLUGIN_WORKER_UNAVAILABLE_CODE } from "../plugin-worker-unavailable-error.js";
@@ -39,6 +41,8 @@ import { isOwnedAiConnectionSelectionRejection } from "../ai-connection-configur
 import { REVIEWED_CHAT_BINDING_NOT_READY, ReviewedChatBindingNotReadyError, reviewedChatBindingDenialResultJson } from "../reviewed-chat-binding-diagnostics.js";
 import { reportRunFailure } from "../run-failure-report.js";
 import { accountRunCost } from "../run-cost-accounting.js";
+import { forgetSessionsOfDeletedRun } from "../tool-access/connections/run-session-reset.js";
+import { forgetHandoffAfterDeletedRuns } from "../tool-access/connections/run-copies.js";
 import { isConversation, settleConversationTurn } from "../agent-conversations.js";
 import { legacyExecutionNeedsReconciliationWithEvidence } from "../legacy-execution-recovery.js";
 import { isWorkspaceGitScanError } from "../workspace-git-operation-scheduler.js";
@@ -189,6 +193,7 @@ export interface FailHeartbeatRunSetupInput {
 
 function nonRetryablePreflightFailureCode(error: unknown): string | null {
   if (error instanceof ProjectAccessDeniedError) return PROJECT_ACCESS_DENIED;
+  if (error instanceof PaperclipRunnerProviderProfileError && error.code === ANTIGRAVITY_SWARM_UNAVAILABLE) return ANTIGRAVITY_SWARM_UNAVAILABLE;
   if (error instanceof ChatControlRecoveryUnresolvedError)
     return CHAT_CONTROL_RECOVERY_UNRESOLVED_CODE;
   if (
@@ -841,6 +846,8 @@ export function createHeartbeatRunCompletion(db: Db, dependencies: HeartbeatRunC
         // configuration metadata used for this run. Persist before release,
         // which can make a same-agent successor eligible immediately.
         await persistSessionState(livenessRun);
+        await forgetSessionsOfDeletedRun(db, livenessRun);
+        await forgetHandoffAfterDeletedRuns(db, livenessRun);
         await releaseIssueExecutionAndPromote(livenessRun, { suppressImmediateRecovery: true });
         await settleAgent();
         return;
@@ -1114,6 +1121,8 @@ export function createHeartbeatRunCompletion(db: Db, dependencies: HeartbeatRunC
 
     if (finalizedRun) {
       await persistSessionState(finalizedRun);
+      await forgetSessionsOfDeletedRun(db, finalizedRun);
+      await forgetHandoffAfterDeletedRuns(db, finalizedRun);
     }
     await settleAgent();
   }
@@ -1342,6 +1351,10 @@ export function createHeartbeatRunCompletion(db: Db, dependencies: HeartbeatRunC
     // replaying an unfinished turn) nothing retries it, so offer Retry instead.
     const message = interruptedExactResume
       ? describeRefusedExactResume(interruptedExactResume, thrownMessage)
+      // A refused /swarm explains itself in one plain sentence (its provider failure); the
+      // Runner's command JSON stays in the run's log and recovery history, not in the error.
+      : failureErrorCode === ANTIGRAVITY_SWARM_UNAVAILABLE && providerFailure?.message.trim()
+        ? redactFailureText(providerFailure.message.trim())
       : !storageUnavailable ? thrownMessage
         : failureErrorCode === STORAGE_UNAVAILABLE_CODE ? storageUnavailableMessage(err) : storageUnavailableHeldMessage(err);
     const failureCause = GENERIC_RUN_FAILURE_CODES.has(failureErrorCode) ? thrownFailureCause : null;
@@ -1676,7 +1689,8 @@ export function createHeartbeatRunCompletion(db: Db, dependencies: HeartbeatRunC
       ? outerErr : null;
     const runnerRevisionMismatch = !providerDispatchStarted && run.runtimeMode === "legacy"
       && run.nativeSessionId === null && run.runnerInstanceId === null && isRunnerRevisionMismatch(outerErr);
-    const sandboxDiskFull = !storageUnavailable && isSandboxProviderDiskFullError(outerErr);
+    const sandboxDiskFull = !storageUnavailable
+      && (isSandboxProviderDiskFullError(outerErr) || isRemoteWorkspaceSandboxDiskFullError(outerErr));
     // A lease lost while AI selection rejected the account does not make the
     // run retryable: every host repeats that rejection until its owner acts.
     const ownedAiSelectionRejection = isOwnedAiConnectionSelectionRejection(
@@ -1704,6 +1718,10 @@ export function createHeartbeatRunCompletion(db: Db, dependencies: HeartbeatRunC
       (sandboxDiskFull ? NATIVE_SANDBOX_DISK_FULL : null) ??
       "setup_failed";
     const failureCause = GENERIC_RUN_FAILURE_CODES.has(setupFailureErrorCode) ? thrownFailureCause : null;
+    // The bounded retry resumes the same lease once the provider recovers, so
+    // a provider outage is reported only after that retry decision.
+    const sandboxResumeOutage = setupFailureErrorCode === reusableSandboxResumeFailure?.code
+      && reusableSandboxResumeFailure.providerOutage;
     // Bounded kind and reason only: a workspace provider's own text never crosses into Core.
     const workspaceProviderFailure = findWorkspaceProviderFailure(outerErr)?.summary() ?? null;
     // A wrapped query error hides its driver cause (for example
@@ -1795,8 +1813,9 @@ export function createHeartbeatRunCompletion(db: Db, dependencies: HeartbeatRunC
     }, { error: outerErr, phase: "setup", secretValues: readFailureReportSecrets(),
       // The Sentry report waits for the bounded retry decision below.
       ...(reviewedChatBindingNotReady ? { reviewedChatRetry: "pending" as const } : {}),
+      ...(sandboxResumeOutage ? { sandboxResumeRetry: "pending" as const } : {}),
     }, { setupFailure: true }).catch(() => ({ run: null, updated: false as const }));
-    let reviewedChatRetryScheduled = false;
+    let setupRetryScheduled = false;
     if (!setupFailureWrite.updated) {
       logger.info(
         {
@@ -1900,7 +1919,7 @@ export function createHeartbeatRunCompletion(db: Db, dependencies: HeartbeatRunC
             );
             return null;
           });
-          reviewedChatRetryScheduled = retry?.outcome === "scheduled";
+          setupRetryScheduled = retry?.outcome === "scheduled";
           storageWait = retry;
           storageWaitScheduled = livenessRun.errorCode === STORAGE_UNAVAILABLE_CODE
             && (retry?.outcome === "scheduled" || retry?.outcome === "retry_exhausted");
@@ -1932,11 +1951,12 @@ export function createHeartbeatRunCompletion(db: Db, dependencies: HeartbeatRunC
       );
     }
     // This path owned the failed-status write, which deferred the report.
-    const reviewedChatReportRun = reviewedChatBindingNotReady && setupFailureWrite.updated
+    const deferredReportRun = (reviewedChatBindingNotReady || sandboxResumeOutage) && setupFailureWrite.updated
       ? failedRun ?? setupFailureWrite.run : null;
-    if (reviewedChatReportRun) {
-      void reportRunFailure(db, reviewedChatReportRun, { error: outerErr, phase: "setup", secretValues: readFailureReportSecrets(),
-        reviewedChatRetry: reviewedChatRetryScheduled ? "scheduled" : "not_scheduled" });
+    if (deferredReportRun) {
+      const retryDecision = setupRetryScheduled ? "scheduled" as const : "not_scheduled" as const;
+      void reportRunFailure(db, deferredReportRun, { error: outerErr, phase: "setup", secretValues: readFailureReportSecrets(),
+        ...(reviewedChatBindingNotReady ? { reviewedChatRetry: retryDecision } : { sandboxResumeRetry: retryDecision }) });
     }
     // Ensure the agent is not left stuck in "running" if the setup-failure
     // path owned the terminal transition. If another path already finalized

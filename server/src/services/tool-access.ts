@@ -13,6 +13,7 @@ import { createConnectionCredentialValidation } from "./tool-access/connections/
 import { createConnectionGrants } from "./tool-access/connections/grants.js";
 import { createConnectionInstalls } from "./tool-access/connections/installs.js";
 import { createConnectionRemoval } from "./tool-access/connections/removal.js";
+import { createFirstSignInDrafts } from "./tool-access/connections/first-sign-in.js";
 import { createToolRemoteHttp } from "./tool-access/remote-http.js";
 import { classifyRisk, normalizeToolDescriptor, type McpToolDescriptor } from "./tool-access/catalog/descriptors.js";
 export { classifyRisk, isGmailToolPermanentlyBlocked, isGoogleWorkspaceToolAllowed, type McpToolDescriptor } from "./tool-access/catalog/descriptors.js";
@@ -98,7 +99,7 @@ import { defaultConnectionAgentInstructions, paperclipPeerAgentInstructions, pap
 import { isBrowserUseConnection } from "./browser-use-client.js";
 
 import { COGNEE_STDIO_TEMPLATE } from "./cognee-connection.js";
-import { isRemoteMcpConnectorMethod, type AwsConnectionSetup } from "@paperclipai/shared";
+import { isCatalogEntryBlocked, isCatalogEntryOffered, isCatalogEntryRemovedByProvider, isRemoteMcpConnectorMethod, type AwsConnectionSetup } from "@paperclipai/shared";
 
 import { githubBotRequest } from "./chat-github-client.js";
 import { syncConnectionCredentialBindings } from "./connection-credential-bindings.js";
@@ -151,9 +152,11 @@ import { toolAccessPolicyService } from "./tool-access-policy.js";
 
 import { googleChatToolDescription } from "./google-chat-tool-policy.js";
 import { gmailArchiveToolDescription } from "./gmail-archive-tool-policy.js";
+import { googleWorkspaceCatalogToolTitle } from "./google-workspace-rest-dispatch.js";
 
 import { createToolRuntimeSupervisor } from "./tool-runtime-supervisor.js";
 
+import { paperclipGoogleSignInAvailable } from "./google-sign-in-availability.js";
 import { appWithPaperclipCloudConnectorAvailability, paperclipCloudConnectorCapabilitiesFromEnv, createPaperclipCloudConnector, isPaperclipCloudConnectorStrategy, paperclipCloudConnectorConfigFromEnv, type PaperclipCloudConnector } from "./paperclip-cloud-connector.js";
 import { createVercelConnectClient, deriveVercelConnectSubject, vercelConnectIntegrationStatus, type VercelConnectClient } from "./vercel-connect.js";
 
@@ -594,6 +597,7 @@ function toCatalogEntryForConnection(
   const rawCatalogEntry = toCatalogEntry(row);
   const catalogEntry = {
     ...rawCatalogEntry,
+    title: googleWorkspaceCatalogToolTitle(asRecord(connection.config).sourceTemplateKey, row.toolName, rawCatalogEntry.title),
     inputSchema: projectedConnectionToolInputSchema(
       connection,
       rawCatalogEntry.inputSchema ?? {},
@@ -779,7 +783,7 @@ export function toolAccessService(
     const profiles = connectorWasProvided
       ? (await currentCloudConnector()?.getCapabilities() ?? [])
       : await paperclipCloudConnectorCapabilitiesFromEnv();
-    return appWithPaperclipCloudConnectorAvailability(app, profiles);
+    return appWithPaperclipCloudConnectorAvailability(app, profiles, paperclipGoogleSignInAvailable());
   }
   const vercelConnect =
     options.vercelConnectClient === undefined
@@ -788,6 +792,7 @@ export function toolAccessService(
   const runtimeSupervisor = createToolRuntimeSupervisor(db, options);
   const connectionGrantsService = createConnectionGrants(db, { getConnectionRow, assertSecretRefs, vercelConnect, currentCloudConnector, secrets });
   const removeConnection = createConnectionRemoval(db, { options, secrets, runtimeSupervisor, vercelConnect, currentCloudConnector, getConnectionRow });
+  const firstSignInDrafts = createFirstSignInDrafts(db, { removeConnection });
   /**
    * Connection setup resolves connector definitions synchronously. Refresh the
    * plugin-provided part of the catalog from the plugins table first, so a
@@ -3401,11 +3406,11 @@ export function toolAccessService(
       connection.id,
       input.askFirstCatalogEntryIds,
     );
-    if (enabledRows.some((entry) => entry.status === "disabled" && !(entry.quarantineReason === "mcp_tool_removed" && isRemoteMcpConnectorMethod(connection.config.sourceTemplateKey, connection.config.connectionMethodKey)))) {
+    if (enabledRows.some(isCatalogEntryBlocked)) {
       throw badRequest("Disabled actions cannot be enabled");
     }
     if (reviewedIds.length > 0) {
-      await assertCatalogEntriesForConnection(
+      const reviewedRows = await assertCatalogEntriesForConnection(
         companyId,
         connection.id,
         reviewedIds,
@@ -3420,7 +3425,7 @@ export function toolAccessService(
             eq(toolCatalogEntries.status, "quarantined"),
           ),
         );
-      const reviewedIdSet = new Set(reviewedIds);
+      const reviewedIdSet = new Set(reviewedRows.filter((entry) => !isCatalogEntryRemovedByProvider(entry)).map((entry) => entry.id));
       if (
         quarantinedRows.length !== reviewedIdSet.size ||
         quarantinedRows.some((entry) => !reviewedIdSet.has(entry.id))
@@ -3433,7 +3438,7 @@ export function toolAccessService(
     if (input.access !== "all_agents")
       await assertAgentsInCompany(companyId, input.access.agentIds);
 
-    const entries: CreateToolProfileEntryForProfile[] = enabledRows.map(
+    const entries: CreateToolProfileEntryForProfile[] = enabledRows.filter(isCatalogEntryOffered).map(
       (entry) => ({
         selectorType: "catalog_entry",
         effect: "include",
@@ -3535,8 +3540,19 @@ export function toolAccessService(
                 priority: prior.priority,
                 metadata: prior.metadata,
               });
+          const priorCatalogEntryIds = [...new Set(priorEntries.flatMap((prior) => prior.catalogEntryId ? [prior.catalogEntryId] : []))];
+          const removedPriorCatalogEntryIds = new Set(
+            (priorCatalogEntryIds.length > 0
+              ? await tx
+                  .select({ id: toolCatalogEntries.id, status: toolCatalogEntries.status, quarantineReason: toolCatalogEntries.quarantineReason })
+                  .from(toolCatalogEntries)
+                  .where(and(eq(toolCatalogEntries.companyId, companyId), inArray(toolCatalogEntries.id, priorCatalogEntryIds)))
+              : []
+            ).filter(isCatalogEntryRemovedByProvider).map((entry) => entry.id),
+          );
           for (const prior of priorEntries)
             if (
+              !(prior.effect === "include" && prior.catalogEntryId && removedPriorCatalogEntryIds.has(prior.catalogEntryId)) &&
               !entries.some(
                 (entry) =>
                   entry.catalogEntryId &&
@@ -3715,6 +3731,7 @@ export function toolAccessService(
               inArray(toolCatalogEntries.id, enabledIds),
               ne(toolCatalogEntries.status, "quarantined"),
               ne(toolCatalogEntries.status, "disabled"),
+              ne(toolCatalogEntries.status, "removed"),
             ),
           );
       }
@@ -3723,7 +3740,7 @@ export function toolAccessService(
         {
           companyId,
           connection,
-          askFirstEntries: askFirstRows,
+          askFirstEntries: askFirstRows.filter(isCatalogEntryOffered),
           disableStale: !input.preserveExistingAccess,
           actor,
         },
@@ -4793,6 +4810,7 @@ export function toolAccessService(
       await annotateAiGrantHealth(connections);
       await annotateGitHubAuthorization(connections, viewerUserId);
       await annotateSavedOAuthClientSecret(connections, viewerUserId);
+      await firstSignInDrafts.annotateFirstSignInPending(companyId, rows, connections);
       return connections;
     },
 
@@ -5003,6 +5021,8 @@ export function toolAccessService(
     },
 
     archiveConnection: removeConnection,
+
+    abandonFirstSignIn: firstSignInDrafts.abandonFirstSignIn,
 
     checkHealth: checkConnectionHealth,
 
