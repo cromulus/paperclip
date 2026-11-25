@@ -67,6 +67,7 @@ beforeEach(() => {
   state.navigate.mockClear();
   vi.mocked(agentChatsApi.ensure).mockClear();
   vi.mocked(issuesApi.addComment).mockClear();
+  vi.mocked(agentChatsApi.bootstrap).mockClear();
   state.liveHandler = null;
   sessionStorage.clear();
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -242,6 +243,26 @@ describe("lightweight Agent Chat route", () => {
     await render();
 
     expect(agentChatsApi.bootstrap).toHaveBeenCalledOnce();
+  });
+
+  it("resolves the same route slug against the new company and user scope", async () => {
+    const makeAgent = (id: string, companyId: string) => ({
+      id, companyId, name: "Chief of Staff", urlKey: "cos", role: "assistant", title: null, icon: null, status: "idle",
+    });
+    client.setQueryData(queryKeys.agents.list("company-a"), [makeAgent("company-a-cos-id", "company-a") as never]);
+    client.removeQueries({ queryKey: queryKeys.agentChats.bootstrap("company-a", "user-a", "company-a-cos-id") });
+    await render();
+    expect(agentChatsApi.bootstrap).toHaveBeenCalledWith("company-a", "company-a-cos-id");
+
+    state.companyId = "company-b";
+    state.userId = "user-b";
+    client.setQueryData(queryKeys.auth.session, { user: { id: "user-b" } });
+    client.setQueryData(queryKeys.agents.list("company-b"), [makeAgent("company-b-cos-id", "company-b") as never]);
+    client.removeQueries({ queryKey: queryKeys.agentChats.bootstrap("company-b", "user-b", "company-b-cos-id") });
+    await render();
+
+    expect(agentChatsApi.bootstrap).toHaveBeenNthCalledWith(1, "company-a", "company-a-cos-id");
+    expect(agentChatsApi.bootstrap).toHaveBeenNthCalledWith(2, "company-b", "company-b-cos-id");
   });
 
   it("locks the composer during guard verification and preserves the reviewed draft", async () => {

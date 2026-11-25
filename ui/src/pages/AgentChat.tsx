@@ -33,9 +33,11 @@ export function AgentChat() {
   // deep link the agent directory may arrive after the bootstrap request has
   // started; switching from the route slug to its UUID mid-flight would issue
   // the same bootstrap twice. The canonical result is still copied below.
-  const bootstrapScope = useRef({ agentRef, agentId: cachedAgent?.id ?? agentRef });
-  if (bootstrapScope.current.agentRef !== agentRef) {
-    bootstrapScope.current = { agentRef, agentId: cachedAgent?.id ?? agentRef };
+  const bootstrapScope = useRef({ agentRef, companyId: selectedCompanyId, userId, agentId: cachedAgent?.id ?? agentRef });
+  if (bootstrapScope.current.agentRef !== agentRef
+    || bootstrapScope.current.companyId !== selectedCompanyId
+    || bootstrapScope.current.userId !== userId) {
+    bootstrapScope.current = { agentRef, companyId: selectedCompanyId, userId, agentId: cachedAgent?.id ?? agentRef };
   }
   const bootstrapAgentRef = bootstrapScope.current.agentId;
   const bootstrapKey = useMemo(
