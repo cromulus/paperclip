@@ -171,7 +171,7 @@ describe("Google Workspace native REST catalog", () => {
     expect(JSON.stringify(result)).toContain("[REDACTED]");
   });
 
-  it("bounds stalled requests and verifies Docs-only consent without inventing a health call", async () => {
+  it("bounds stalled requests and verifies consent-only scopes without inventing a health call", async () => {
     const stalled = googleWorkspaceApiClient({ Authorization: auth }, async () => new Promise<Response>(() => {}), [scopes.gmailRead], AbortSignal.timeout(5), Date.now() + 50);
     await expect(stalled.execute("gmail__list_labels", {})).rejects.toMatchObject({ status: 504 });
 
@@ -180,6 +180,10 @@ describe("Google Workspace native REST catalog", () => {
       .rejects.toMatchObject({ status: 403 });
     await expect(probeGoogleWorkspaceApi(googleConnection, { Authorization: auth }, p.request, { grantedScopes: [scopes.docsRead] }))
       .resolves.toEqual({ service: "docs", verified: "consent_only", providerRequestVerified: false });
+    await expect(probeGoogleWorkspaceApi(googleConnection, { Authorization: auth }, p.request, { grantedScopes: [scopes.gmailCompose] }))
+      .resolves.toEqual({ service: "gmail", verified: "consent_only", providerRequestVerified: false });
+    await expect(probeGoogleWorkspaceApi(googleConnection, { Authorization: auth }, p.request, { grantedScopes: [scopes.driveFile] }))
+      .resolves.toEqual({ service: "drive", verified: "consent_only", providerRequestVerified: false });
     expect(p.calls).toHaveLength(0);
   });
 });

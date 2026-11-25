@@ -371,5 +371,10 @@ export async function probeGoogleWorkspaceApi(connection: { transport: string; c
   if (scopes.includes("https://www.googleapis.com/auth/documents.readonly") || scopes.includes("https://www.googleapis.com/auth/documents")) {
     return { service: "docs", verified: "consent_only", providerRequestVerified: false };
   }
+  const grantedOperation = OPERATIONS.find((operation) => isGoogleWorkspaceToolGranted(operation.name, scopes));
+  if (grantedOperation) {
+    const service = googleWorkspaceToolTarget(grantedOperation.name)?.service ?? "workspace";
+    return { service, verified: "consent_only", providerRequestVerified: false };
+  }
   throw failure(422, "google_workspace_scope_missing", "Reconnect Google Workspace and grant a read scope for Gmail, Drive, or Calendar.");
 }
