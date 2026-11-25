@@ -10,6 +10,9 @@ import {
   routePaperclipMcpServersThroughCallbackBridge,
 } from "./acpx-engine/execute.js";
 import {
+  authorizeSandboxCallbackBridgeRequestWithRoutes,
+} from "./sandbox-callback-bridge.js";
+import {
   startAdapterExecutionTargetPaperclipBridge,
   type AdapterSandboxExecutionTarget,
 } from "./execution-target.js";
@@ -84,6 +87,12 @@ describe("Paperclip native MCP callback bridge integration", () => {
     expect(isPaperclipMcpCallbackPath("/api/mcp/runtime-tools")).toBe(false);
     expect(isPaperclipMcpCallbackPath("/api/mcp/gateways/gw_doktor")).toBe(false);
     expect(isPaperclipMcpCallbackPath("/mcp/gateways/gw_doktor/extra")).toBe(false);
+    for (const path of ["/api/mcp/project-tools", "/mcp/runtime-tools", "/mcp/gateways/gw_doktor"]) {
+      expect(authorizeSandboxCallbackBridgeRequestWithRoutes({ method: "POST", path })).toBeNull();
+    }
+    for (const path of ["/api/mcp/runtime-tools", "/api/mcp/gateways/gw_doktor", "/mcp/gateways/gw_doktor/extra"]) {
+      expect(authorizeSandboxCallbackBridgeRequestWithRoutes({ method: "POST", path })).toContain("Route not allowed:");
+    }
   });
 
   it("relays JSON-RPC through the per-run token and forwards only captured MCP credentials", async () => {
