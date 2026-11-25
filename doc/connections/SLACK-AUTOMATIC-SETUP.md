@@ -126,8 +126,11 @@ the browser cannot supply a manifest, scopes, or callback destination.
 - The OAuth redirect is `<canonical board origin>/api/chat-slack/oauth/callback`.
   It uses the existing authenticated board callback path and Cloud bootstrap
   checks. Keep board authentication enabled.
-- Webhook URLs use `PAPERCLIP_CHAT_WEBHOOK_PUBLIC_URL` when configured, otherwise
-  the canonical board origin. They end in `/api/chat-webhooks/<publicId>/slack`.
+- Webhook URLs use the legacy chat-specific `PAPERCLIP_CHAT_WEBHOOK_PUBLIC_URL`
+  override when set, otherwise the shared `PAPERCLIP_WEBHOOK_PUBLIC_URL`, then
+  the canonical board origin. Set the shared variable to an HTTPS origin such as
+  `https://hooks.example.com`; routine and email webhook URLs also use it.
+  Slack callbacks end in `/api/chat-webhooks/<publicId>/slack`.
   A separate webhook ingress must route signed webhook requests to the instance.
 - Avatar upload renders the assigned agent's preset PNG on the server and sends
   its bytes through `apps.icon.set` as multipart form data. Slack does not need to
