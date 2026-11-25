@@ -4248,10 +4248,15 @@ registry.registerPath({
   tags: ["issues"],
   summary: "List issues in a company",
   description:
-    "Use `view=compact` for the board issue-list row contract. The default response remains the broad compatibility contract.",
+    "Use `view=compact` for the board issue-list row contract. `ids` batch-reads exact visible issue IDs and `parentIds` batch-reads children of those parents; each accepts up to 100 comma-separated UUIDs. `onePerParent=true` returns one child per parent and requires `parentIds`. The default response remains the broad compatibility contract.",
   request: {
     params: z.object({ companyId: z.string() }),
-    query: z.object({ view: z.enum(["compact"]).optional() }).passthrough(),
+    query: z.object({
+      view: z.enum(["compact"]).optional(),
+      ids: z.string().min(1).optional().describe("Up to 100 comma-separated issue UUIDs"),
+      parentIds: z.string().min(1).optional().describe("Up to 100 comma-separated parent issue UUIDs"),
+      onePerParent: z.enum(["true", "false"]).optional(),
+    }).passthrough(),
   },
   responses: {
     200: r.ok(),
