@@ -14,6 +14,8 @@ export const queryKeys = {
       ["agent-chats", companyId, userId] as const,
     detail: (companyId: string | null, userId: string | null, agentId: string | undefined) =>
       ["agent-chat", companyId, userId, agentId] as const,
+    bootstrap: (companyId: string | null, userId: string | null, agentId: string | undefined) =>
+      ["agentChatBootstrap", companyId, userId, agentId] as const,
   },
   companies: {
     /**
