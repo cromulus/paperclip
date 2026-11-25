@@ -7,6 +7,7 @@ import { applyObservabilityEnvironment } from "../agent-observability.js";
 import { cancellableSandboxStartup } from "./startup-cancellation.js";
 import { emitStartupReuse, environmentStartupReuse, summarizeStartupReuse, type StartupReuseReason } from "../startup-reuse.js";
 import { withAdapterExecutionPhase, type AdapterExecutionPhase } from "../execution-phase.js";
+import { buildPaperclipMcpBridgeRoutes, isPaperclipMcpCallbackPath } from "../paperclip-mcp-callback-bridge.js";
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import os from "node:os";
@@ -17,6 +18,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { parseFrontmatterMarkdown } from "@paperclipai/shared";
 import { fileURLToPath } from "node:url";
 import type {
+  AdapterRuntimeMcpServer,
   AdapterBillingType,
   AdapterExecutionContext,
   AdapterExecutionResult,
@@ -282,6 +284,64 @@ interface AcpxEngineSettings {
   packageRootDir: string;
 }
 
+/**
+ * A remote execution target cannot reach Paperclip's loopback MCP URLs: those
+ * addresses resolve inside the Paperclip server container. Route only the
+ * built-in, run-scoped JSON-RPC endpoints through the per-run callback bridge.
+ * The bridge bearer is replaced host-side with the credential captured for that
+ * exact route; the HTTP allowlist admits only these POST endpoints.
+ * External MCP connections retain their provider URL and credential.
+ */
+type AcpMcpServers = Extract<NonNullable<AcpRuntimeOptions["mcpServers"]>, unknown[]>;
+
+export function routePaperclipMcpServersThroughCallbackBridge(
+  servers: AcpMcpServers,
+  bridge: AdapterExecutionTargetPaperclipBridgeHandle | null | undefined,
+  executionTargetIsRemote = true,
+): AcpMcpServers {
+  if (!executionTargetIsRemote) return servers;
+  const bridgeUrl = bridge?.env.PAPERCLIP_API_URL?.trim();
+  const bridgeToken = bridge?.env.PAPERCLIP_API_KEY?.trim();
+  if (!bridgeUrl || !bridgeToken) {
+    for (const server of servers) {
+      if (!("url" in server) || typeof server.url !== "string") continue;
+      let source: URL;
+      try { source = new URL(server.url); } catch { continue; }
+      const loopbackHost = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(source.hostname.toLowerCase());
+      if (source.protocol === "http:" && loopbackHost && isPaperclipMcpCallbackPath(source.pathname)) {
+        throw new Error("Remote Paperclip MCP bridge is unavailable for a controller-local endpoint.");
+      }
+    }
+    return servers;
+  }
+
+  return servers.map((server) => {
+    if (!("url" in server) || typeof server.url !== "string") return server;
+    let source: URL;
+    try {
+      source = new URL(server.url);
+    } catch {
+      return server;
+    }
+    const loopbackHost = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(source.hostname.toLowerCase());
+    if (source.protocol !== "http:" || !loopbackHost) return server;
+    const builtInMcpPath = isPaperclipMcpCallbackPath(source.pathname);
+    if (!builtInMcpPath || source.search || source.hash) {
+      throw new Error("Remote MCP config contains an unapproved loopback endpoint.");
+    }
+
+    const bridgeEndpoint = new URL(`${source.pathname}${source.search}`, bridgeUrl);
+    const existingHeaders = "headers" in server && Array.isArray(server.headers)
+      ? server.headers as Array<{ name: string; value: string }>
+      : [];
+    const headers = existingHeaders.filter((header) => header.name.toLowerCase() !== "authorization");
+    headers.push({ name: "Authorization", value: `Bearer ${bridgeToken}` });
+    return { ...server, url: bridgeEndpoint.toString(), headers };
+  });
+}
+
+export { buildPaperclipMcpBridgeRoutes } from "../paperclip-mcp-callback-bridge.js";
+
 export interface AcpxEngineBillingIdentity {
   provider?: string | null;
   biller?: string | null;
@@ -454,6 +514,16 @@ export interface AcpxEngineExecutorOptions {
   prepareRemoteManagedHome?: (
     input: AcpxRemoteManagedHomeContext,
   ) => Promise<AcpxRemoteManagedHomeResult>;
+  /** Per-run bridge-dependent config refresh, called before every launch including a warm resume. */
+  prepareRemoteManagedHomeForRun?: (input: {
+    acpxAgent: string;
+    executionTarget: AdapterExecutionTarget;
+    hostManagedHomeDir: string | null;
+    stagedRuntime: PreparedAdapterExecutionTargetRuntime;
+    runtimeMcpServers: AdapterRuntimeMcpServer[];
+    bridgeEnv: Record<string, string>;
+    timeoutSec: number;
+  }) => Promise<void>;
   /**
    * Observe the final per-resource disposition report the run records at the end
    * of the attempt (`finalized` vs `transferred`). The coordinator records it on
@@ -495,6 +565,7 @@ interface AcpxPreparedRuntime {
   agentRegistry: AcpAgentRegistry;
   processSessionBridge: AdapterExecutionTargetProcessSessionBridgeHandle | null;
   paperclipBridge: AdapterExecutionTargetPaperclipBridgeHandle | null;
+  executionTargetIsRemote: boolean;
   // The workspace/runtime staged into a runner-backed remote sandbox (null for
   // local runs and the runner-less ACP→CLI fallback). PR 1 stages the workspace
   // + cwd only; the `assetDirs`/`runtimeRootDir`/`restoreWorkspace` it carries
@@ -529,7 +600,7 @@ interface AcpxPreparedRuntime {
   skillsIdentity: Record<string, unknown>;
   childStderrLogPath: string | null;
   paperclipClaudeSettings: PaperclipClaudeSettingsResult | null;
-  mcpServers: NonNullable<AcpRuntimeOptions["mcpServers"]>;
+  mcpServers: AcpMcpServers;
   mcpIdentity: Array<{ name: string; url: string; connectionId: string }>;
   // Per-step round-trip / provider-duration readers sourced from the sandbox
   // runner's counters (Open Q1). Empty for local runs and the runner-less
@@ -2023,7 +2094,7 @@ async function buildRuntime(input: {
     url,
     connectionId,
   }));
-  const mcpServers: NonNullable<AcpRuntimeOptions["mcpServers"]> = runtimeMcpServers.map((server) => ({
+  const mcpServers: AcpMcpServers = runtimeMcpServers.map((server) => ({
     type: "http",
     name: server.name,
     url: server.url,
@@ -2440,6 +2511,7 @@ async function buildRuntime(input: {
   let sandboxSite: SandboxRunSite | null = null;
   if (useRemoteProcessSession && executionTarget?.kind === "remote") {
     const remoteTarget = executionTarget;
+    const hostManagedHomeDir = env.CODEX_HOME?.trim() || null;
     sandboxSite = createSandboxRunSite({
       ledger: input.ledger,
       stagedRuntimes,
@@ -2531,6 +2603,18 @@ async function buildRuntime(input: {
           "stdout",
           "[paperclip] Reusing the staged in-sandbox runtime for this resumed session (no workspace re-ship / managed-home re-seed).\n",
         ),
+      prepareBeforeLaunch: input.deps.prepareRemoteManagedHomeForRun
+        ? ({ stagedRuntime: currentStagedRuntime, bridgeEnv }) =>
+            input.deps.prepareRemoteManagedHomeForRun!({
+              acpxAgent,
+              executionTarget: remoteTarget,
+              hostManagedHomeDir,
+              stagedRuntime: currentStagedRuntime,
+              runtimeMcpServers,
+              bridgeEnv,
+              timeoutSec,
+            })
+        : undefined,
       startPaperclipBridge: (runtimeRootDir) =>
         startAdapterExecutionTargetPaperclipBridge({
           runId,
@@ -2539,6 +2623,7 @@ async function buildRuntime(input: {
           adapterKey: input.engine.adapterType,
           timeoutSec,
           hostApiToken: env.PAPERCLIP_API_KEY,
+          mcpRoutes: buildPaperclipMcpBridgeRoutes(runtimeMcpServers),
           enableSandboxDuplexBridge: adapterExecutionTargetEnablesSandboxDuplexBridge(remoteTarget),
           duplexObservabilityRecorder: adapterExecutionTargetDuplexObservabilityRecorder(remoteTarget),
           onLog: input.ctx.onLog,
@@ -2776,6 +2861,7 @@ async function buildRuntime(input: {
     agentRegistry,
     processSessionBridge,
     paperclipBridge,
+    executionTargetIsRemote,
     stagedRuntime,
     remoteManagedHomeTeardown,
     remoteStagingDispose,
@@ -4612,7 +4698,11 @@ export function createAcpxEngineExecutor(deps: AcpxEngineExecutorOptions = {}) {
           agentRegistry: prepared.agentRegistry,
           permissionMode: prepared.permissionMode,
           nonInteractivePermissions: prepared.nonInteractivePermissions,
-          mcpServers: prepared.mcpServers,
+          mcpServers: routePaperclipMcpServersThroughCallbackBridge(
+            prepared.mcpServers,
+            prepared.paperclipBridge,
+            prepared.executionTargetIsRemote,
+          ),
           timeoutMs: prepared.timeoutSec > 0 ? prepared.timeoutSec * 1000 : undefined,
           // Scope ACPX runtime verbose logs to the claude agent only. Codex
           // and custom agents already emit their own per-tool output and don't

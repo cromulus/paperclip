@@ -145,6 +145,12 @@ export interface SandboxRunSiteOptions {
   readonly publishStagedProjectHints: (stagedProjectDirs: Record<string, string>) => void;
   readonly onReuseLog: () => Promise<void>;
 
+  /** Refresh run-scoped provider config in the staged home before its process starts. */
+  readonly prepareBeforeLaunch?: (input: {
+    stagedRuntime: PreparedAdapterExecutionTargetRuntime;
+    bridgeEnv: Record<string, string>;
+  }) => Promise<void>;
+
   /** Start the host-side paperclip callback bridge. */
   readonly startPaperclipBridge: (
     runtimeRootDir: string | null,
@@ -365,6 +371,12 @@ export function createSandboxRunSite(options: SandboxRunSiteOptions): SandboxRun
       const finalizeLaunchEnv = (): Promise<Record<string, string>> =>
         (launchEnvPromise ??= (async () => {
           const paperclip = await paperclipStart;
+          if (options.prepareBeforeLaunch && staged) {
+            await options.prepareBeforeLaunch({
+              stagedRuntime: staged.stagedRuntime,
+              bridgeEnv: paperclip?.env ?? {},
+            });
+          }
           // The paperclip bridge token is run-scoped: it lives for this run only and
           // never enters a reuse payload (Amendment B). The site hands it to the
           // engine's `finalizeLaunchEnv`, the sole consumer of a contribution, and

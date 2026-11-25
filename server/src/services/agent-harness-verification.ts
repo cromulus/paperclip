@@ -107,7 +107,7 @@ export function agentHarnessVerificationService(db: Db, manager: PluginWorkerMan
     let runner: Record<string, unknown> | null = providerApi ? { kind: "provider_api" } : { kind: "local", version: serverVersion };
     const environmentId = providerApi ? null : await tests.resolveAdapterTestEnvironmentId(agent.companyId, agent.defaultEnvironmentId, agent.adapterType === "paperclip_runner" && config.provider === "acpx" && config.acpxAgent === "copilot");
     if (environmentId) {
-      await tests.assertAdapterTestEnvironmentForCompany(agent.companyId, environmentId, agent.adapterType);
+      await tests.assertAdapterTestEnvironmentForCompany(agent.companyId, environmentId, agent.adapterType, agent.id);
       const environment = await environments.getById(environmentId);
       if (environment && environment.driver !== "local") {
         const image = environment.driver === "sandbox" ? await sandboxBinding(db, environment, agent.companyId).catch(() => null) : null;

@@ -17,7 +17,7 @@ Agent access: [companion](../agent-access-map/execution-environments.md).
 - `configuration`: `execution-environments/configuration` — inspect local environments and configure available SSH/sandbox targets.
 - `capabilities`: `execution-environments/capabilities` — select only drivers/providers that advertise the required execution capability.
 - `probe`: `execution-environments/probe` — test reachability and runtime prerequisites in the actual target.
-- `assignment`: `execution-environments/assignment` — bind the intended agent/project/workspace to its execution target.
+- `assignment`: `execution-environments/assignment` — select a shared target or bind a credential-bearing environment to one agent, then verify the run uses that target.
 - `images`: `execution-environments/images` — inspect supported sandbox custom-image preparation and terminal workflows.
 
 ## How to get to it (user POV)

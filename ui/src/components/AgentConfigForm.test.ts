@@ -37,6 +37,7 @@ describe("resolvePaperclipRunnerTransitionModel", () => {
 
 function makeEnvironment(overrides: Partial<Environment>): Environment {
   return {
+    ownerAgentId: null,
     id: "env-1",
     name: "Env",
     description: null,

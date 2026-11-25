@@ -17,6 +17,8 @@ const environmentFields = {
   description: z.string().optional().nullable(),
   driver: environmentDriverSchema,
   status: environmentStatusSchema.optional().default("active"),
+  /** Restrict this environment and its runtime credentials to one agent. */
+  ownerAgentId: z.string().uuid().optional().nullable().default(null),
   config: z.record(z.string(), z.unknown()).optional().default({}),
   envVars: envConfigSchema.optional().default({}),
   metadata: z.record(z.string(), z.unknown()).optional().nullable(),

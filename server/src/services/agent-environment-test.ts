@@ -121,6 +121,11 @@ export function agentEnvironmentTestService(db: Db, pluginWorkerManager?: Plugin
         release: noopRelease,
       };
     }
+    if (requestedEnvironment.ownerAgentId && requestedEnvironment.ownerAgentId !== input.agentId) {
+      throw forbidden("The selected environment is bound to another agent.", {
+        code: "environment_agent_mismatch",
+      });
+    }
 
     // Managed-sandbox-only policy: redirect a Test that would run on the local
     // host onto the platform-managed sandbox, the same as a real run does
@@ -509,11 +514,13 @@ export function agentEnvironmentTestService(db: Db, pluginWorkerManager?: Plugin
   async function assertAdapterTestEnvironmentForCompany(
     companyId: string,
     environmentId: string,
-    adapterType?: string,
+    adapterType: string | undefined,
+    agentId?: string | null,
   ): Promise<void> {
-    if (!await assertAdapterTestEnvironmentBinding(companyId, environmentId)) return;
+    if (!await assertAdapterTestEnvironmentBinding(companyId, environmentId, agentId)) return;
     await assertEnvironmentSelectionForCompany(environmentsSvc, companyId, environmentId, {
       allowedDrivers: adapterType === "paperclip_runner" ? [...ADAPTER_TEST_ALLOWED_ENVIRONMENT_DRIVERS, "plugin"] : ADAPTER_TEST_ALLOWED_ENVIRONMENT_DRIVERS,
+      agentId,
     });
   }
 
@@ -522,7 +529,7 @@ export function agentEnvironmentTestService(db: Db, pluginWorkerManager?: Plugin
   // full guard with the resolved adapter type. Returns the environment, or
   // null for a missing one, which leaks no tenant state; the execution-context
   // resolver surfaces the existing environment_not_found check.
-  async function assertAdapterTestEnvironmentBinding(companyId: string, environmentId: string) {
+  async function assertAdapterTestEnvironmentBinding(companyId: string, environmentId: string, agentId?: string | null) {
     const environment = await environmentsSvc.getById(environmentId);
     if (!environment) return null;
     const boundCompanyIds = await environmentsSvc.listBoundCompanyIds(environmentId);
@@ -530,6 +537,9 @@ export function agentEnvironmentTestService(db: Db, pluginWorkerManager?: Plugin
       throw forbidden("The selected environment belongs to another company.", {
         code: "environment_company_mismatch",
       });
+    }
+    if (environment.ownerAgentId && environment.ownerAgentId !== agentId) {
+      throw forbidden("The selected environment is bound to another agent.", { code: "environment_agent_mismatch" });
     }
     return environment;
   }

@@ -1,6 +1,8 @@
 import { Router, type Request } from "express";
 import { assertEnvironmentVariablesNotProtected } from "../services/protected-environment-keys.js";
 import type { Db } from "@paperclipai/db";
+import { agents as agentsTable } from "@paperclipai/db";
+import { and, eq } from "drizzle-orm";
 import {
   AGENT_ADAPTER_TYPES,
   cancelEnvironmentCustomImageSetupSessionSchema,
@@ -1069,6 +1071,17 @@ export function environmentRoutes(
   router.post("/companies/:companyId/environments", validate(createEnvironmentSchema), async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCanAccessInstanceEnvironments(req);
+    if (req.body.ownerAgentId) {
+      const [owner] = await db.select({ id: agentsTable.id })
+        .from(agentsTable)
+        .where(and(eq(agentsTable.id, req.body.ownerAgentId), eq(agentsTable.companyId, companyId)))
+        .limit(1);
+      if (!owner) {
+        throw unprocessable("The environment owner must be an agent in the selected company.", {
+          code: "environment_agent_company_mismatch",
+        });
+      }
+    }
     assertNoClientPlatformProvisionedMarkers(req.body.metadata);
     if (req.body.driver === "local") {
       const existingLocal = await svc.list({ driver: "local" });
@@ -1547,6 +1560,7 @@ export function environmentRoutes(
         description: req.body.description ?? null,
         driver: req.body.driver,
         status: "active" as const,
+        ownerAgentId: null,
         config: normalizedConfig,
         envVars: {},
         metadata: req.body.metadata ?? null,

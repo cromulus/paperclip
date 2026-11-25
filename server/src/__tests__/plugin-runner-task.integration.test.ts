@@ -206,7 +206,7 @@ databaseSuite("Core plugin Runner task lifecycle", () => {
       call: (_id: string, method: string, params: unknown) => harness.call(method, params) } as unknown as PluginWorkerManager;
     const runtime = environmentRuntimeService(db, { pluginWorkerManager: workers });
     const setup = agentEnvironmentTestService(db, workers);
-    await setup.assertAdapterTestEnvironmentForCompany(companyId, environmentId, "paperclip_runner");
+    await setup.assertAdapterTestEnvironmentForCompany(companyId, environmentId, "paperclip_runner", null);
     const probe = await setup.resolveAdapterTestExecutionContext({ companyId, agentId, adapterType: "paperclip_runner", environmentId });
     expect(probe.fallbackChecks).toEqual([]);
     expect(probe.executionTarget).toMatchObject({ runnerTaskProbe: { runId: expect.any(String), sessionId: expect.any(String) } });

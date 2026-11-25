@@ -1263,10 +1263,12 @@ export function agentRoutes(
     companyId: string,
     adapterType: string,
     environmentId: string | null | undefined,
+    agentId: string,
   ) {
     if (environmentId === undefined || environmentId === null) return;
     await assertEnvironmentSelectionForCompany(environmentService(db), companyId, environmentId, {
       allowedDrivers: allowedEnvironmentDriversForAgent(adapterType),
+      agentId,
     });
   }
 
@@ -2061,12 +2063,17 @@ export function agentRoutes(
   async function assertAgentDefaultEnvironmentSelection(
     companyId: string,
     environmentId: string | null | undefined,
-    options?: { allowedDrivers?: string[]; allowedSandboxProviders?: string[] },
+    options?: { allowedDrivers?: string[]; allowedSandboxProviders?: string[]; agentId?: string },
   ) {
     if (environmentId === undefined || environmentId === null) return;
     const environment = await environmentsSvc.getById(environmentId);
     if (!environment) {
       throw unprocessable("Selected environment was not found");
+    }
+    if (environment.ownerAgentId && environment.ownerAgentId !== options?.agentId) {
+      throw forbidden("The selected environment is bound to another agent.", {
+        code: "environment_agent_mismatch",
+      });
     }
     if (options?.allowedDrivers && !options.allowedDrivers.includes(environment.driver)) {
       throw unprocessable(`Environment driver "${environment.driver}" is not allowed here`);
@@ -3315,7 +3322,7 @@ export function agentRoutes(
     const testEnvironmentId = probe !== "none" || binding.provider === "github"
       ? await resolveAdapterTestEnvironmentId(companyId, environmentId, binding.provider === "github")
       : null;
-    if (testEnvironmentId) await assertAdapterTestEnvironmentForCompany(companyId, testEnvironmentId, adapterType);
+    if (testEnvironmentId) await assertAdapterTestEnvironmentForCompany(companyId, testEnvironmentId, adapterType, agentId);
     // Healthy saved accounts were verified when connected. Configuration saves
     // must not acquire a computer or send another hello prompt. Legacy adoption
     // and explicit task adoption still need proof. Copilot retains its metadata-only
@@ -3411,7 +3418,7 @@ export function agentRoutes(
       // driver check waits for runner selection: a Claude harness on a plugin
       // environment is only allowed once it resolves to Paperclip Runner.
       const requestedEnvironment = requestedEnvironmentId
-        ? await assertAdapterTestEnvironmentBinding(companyId, requestedEnvironmentId)
+        ? await assertAdapterTestEnvironmentBinding(companyId, requestedEnvironmentId, savedAgent?.id ?? null)
         : null;
       if (requestedEnvironment?.driver === "ssh" && requestedEnvironment.config.useHostAuth !== false) {
         aiBinding = undefined;
@@ -3748,7 +3755,7 @@ export function agentRoutes(
       await assertCanCreateAgentsForCompany(req, companyId);
       const environmentId = asNonEmptyString(req.query.environmentId);
       if (environmentId) {
-        await assertAdapterTestEnvironmentForCompany(companyId, environmentId, type);
+        await assertAdapterTestEnvironmentForCompany(companyId, environmentId, type, null);
       }
       res.setHeader("Cache-Control", "no-store");
 
@@ -4712,11 +4719,12 @@ export function agentRoutes(
       adapterConfig: normalizedAdapterConfig,
       runtimeConfig: normalizedRuntimeConfig,
     };
-    await assertAgentEnvironmentSelection(companyId, hireInput.adapterType, hireInput.defaultEnvironmentId);
+    await assertAgentEnvironmentSelection(companyId, hireInput.adapterType, hireInput.defaultEnvironmentId, hiredAgentId);
     await assertAntigravityCandidateCoversEnvironment(companyId, hireInput.adapterType, hireInput.adapterConfig, hireInput.defaultEnvironmentId);
     await assertAgentDefaultEnvironmentSelection(companyId, hireInput.defaultEnvironmentId, {
       allowedDrivers: allowedEnvironmentDriversForAgent(hireInput.adapterType),
       allowedSandboxProviders: allowedSandboxProvidersForAgent(hireInput.adapterType),
+      agentId: hiredAgentId,
     });
     configurationWarnings.push(...await checkAgentProtectedEnvironmentKeys(db, normalizedAdapterConfig, hireInput.defaultEnvironmentId));
 
@@ -5034,11 +5042,12 @@ export function agentRoutes(
       setupOnly: Boolean(setupId),
     });
     const normalizedRuntimeConfig = await normalizeCreatedAgentRuntimeConfig(req, companyId, createInput.adapterType, normalizedAdapterConfig, createInput.runtimeConfig);
-    await assertAgentEnvironmentSelection(companyId, createInput.adapterType, createInput.defaultEnvironmentId);
+    await assertAgentEnvironmentSelection(companyId, createInput.adapterType, createInput.defaultEnvironmentId, agentId);
     await assertAntigravityCandidateCoversEnvironment(companyId, createInput.adapterType, createInput.adapterConfig, createInput.defaultEnvironmentId);
     await assertAgentDefaultEnvironmentSelection(companyId, createInput.defaultEnvironmentId, {
       allowedDrivers: allowedEnvironmentDriversForAgent(createInput.adapterType),
       allowedSandboxProviders: allowedSandboxProvidersForAgent(createInput.adapterType),
+      agentId,
     });
     configurationWarnings.push(...await checkAgentProtectedEnvironmentKeys(db, normalizedAdapterConfig, createInput.defaultEnvironmentId));
 
@@ -5919,6 +5928,7 @@ export function agentRoutes(
         {
           allowedDrivers: allowedEnvironmentDriversForAgent(requestedAdapterType),
           allowedSandboxProviders: allowedSandboxProvidersForAgent(requestedAdapterType),
+          agentId: existing.id,
         },
       );
       const protectedKeyWarnings = await checkAgentProtectedEnvironmentKeys(db, patchData.adapterConfig ?? existing.adapterConfig, nextDefaultEnvironmentId);

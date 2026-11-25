@@ -1,3 +1,4 @@
+import { isGitHubRepositoryConnection } from "./tool-access/nmc-github-connection.js";
 import { notifyGitHubCredentialChange } from "./github-connection-notifications.js";
 import { AWS_MCP_ISSUER_CONFIG_KEY, AWS_ROLE_ARN_PATTERN, awsMcpMethodUsesIssuer, isAwsMcpConnection, type AwsMcpClients } from "./connectors/aws/mcp-credentials.js";
 import { awsRoleSetup } from "./connectors/aws/setup.js";
@@ -713,7 +714,7 @@ function readStdioTemplateId(config: Record<string, unknown>): string {
 
 async function gitHubReadGrantAccess(db: Db, companyId: string, connectionId: string, userId: string | null, localTrusted: boolean) {
   const [connection] = await db.select().from(toolConnections).where(and(eq(toolConnections.companyId, companyId), eq(toolConnections.id, connectionId)));
-  if (!connection || !connection.enabled || connection.status !== "active" || asRecord(connection.config).sourceTemplateKey !== "github") {
+  if (!connection || !connection.enabled || connection.status !== "active" || !isGitHubRepositoryConnection(connection)) {
     throw forbidden("GitHub connection is unavailable. Choose a connection you can use.");
   }
   const [membership] = userId ? await db.select().from(companyMemberships).where(and(eq(companyMemberships.companyId, companyId), eq(companyMemberships.principalId, userId), eq(companyMemberships.principalType, "user"), eq(companyMemberships.status, "active"))) : [];
@@ -4568,7 +4569,7 @@ export function toolAccessService(
       const connections = await db.select().from(toolConnections).where(and(eq(toolConnections.companyId, companyId), eq(toolConnections.enabled, true))).orderBy(desc(toolConnections.updatedAt));
       const ids: string[] = [];
       for (const connection of connections) {
-        if (connection.status !== "active" || asRecord(connection.config).sourceTemplateKey !== "github") continue;
+        if (connection.status !== "active" || !isGitHubRepositoryConnection(connection)) continue;
         try {
           await gitHubReadGrantAccess(db, companyId, connection.id, userId, localTrusted);
           ids.push(connection.id);
@@ -4650,7 +4651,7 @@ export function toolAccessService(
       for (const connection of connections) {
         if (
           connection.status !== "active" ||
-          asRecord(connection.config).sourceTemplateKey !== "github"
+          !isGitHubRepositoryConnection(connection)
         )
           continue;
         const connectionGrants = grants.filter(

@@ -36,6 +36,7 @@ import {
   findAncestorBin,
   geminiVersionSupportsNativeAcpFlag,
   parseGeminiVersionParts,
+  routePaperclipMcpServersThroughCallbackBridge,
   referencedSourceContentSignature,
   resolveStalledToolTimeoutMs,
   rewriteGeminiAcpFlagForVersion,
@@ -416,6 +417,57 @@ const ALLOWED_RUN_SPAN_ATTRIBUTE_KEYS = new Set<string>([
 const ALLOWED_TURN_SPAN_ATTRIBUTE_KEYS = new Set<string>([
   "paperclip.agent.turn.wall_ms",
 ]);
+
+describe("Paperclip MCP callback routing", () => {
+  it("routes only built-in loopback MCP endpoints through the per-run bridge", () => {
+    const servers: NonNullable<AcpRuntimeOptions["mcpServers"]> = [
+      { type: "http", name: "Paperclip projects", url: "http://127.0.0.1:3100/api/mcp/project-tools", headers: [{ name: "Authorization", value: "Bearer run-token" }] },
+      { type: "http", name: "Doktor", url: "http://localhost:3100/mcp/gateways/gw_example", headers: [{ name: "Authorization", value: "Bearer run-token" }] },
+      { type: "http", name: "Paperclip runtime", url: "http://127.0.0.1:3100/mcp/runtime-tools", headers: [{ name: "Authorization", value: "Bearer runtime-token" }] },
+      { type: "http", name: "External provider", url: "https://example.invalid/mcp", headers: [{ name: "Authorization", value: "Bearer provider-token" }] },
+    ];
+    const routed = routePaperclipMcpServersThroughCallbackBridge(servers, {
+      env: { PAPERCLIP_API_URL: "http://127.0.0.1:43991", PAPERCLIP_API_KEY: "bridge-token" },
+      stop: async () => {},
+    });
+
+    expect(routed[0]).toMatchObject({
+      url: "http://127.0.0.1:43991/api/mcp/project-tools",
+      headers: [{ name: "Authorization", value: "Bearer bridge-token" }],
+    });
+    expect(routed[1]).toMatchObject({
+      url: "http://127.0.0.1:43991/mcp/gateways/gw_example",
+      headers: [{ name: "Authorization", value: "Bearer bridge-token" }],
+    });
+    expect(routed[2]).toMatchObject({ url: "http://127.0.0.1:43991/mcp/runtime-tools", headers: [{ name: "Authorization", value: "Bearer bridge-token" }] });
+    expect(routed[3]).toEqual(servers[3]);
+  });
+
+  it("fails closed on controller-local paths outside the exact Paperclip MCP allowlist", () => {
+    const servers: NonNullable<AcpRuntimeOptions["mcpServers"]> = [
+      { type: "http", name: "Other local route", url: "http://127.0.0.1:3100/api/companies/company-1/issues", headers: [{ name: "Authorization", value: "Bearer host-token" }] },
+    ];
+    expect(() => routePaperclipMcpServersThroughCallbackBridge(servers, {
+      env: { PAPERCLIP_API_URL: "http://127.0.0.1:43991", PAPERCLIP_API_KEY: "bridge-token" },
+      stop: async () => {},
+    })).toThrow("Remote MCP config contains an unapproved loopback endpoint.");
+  });
+
+  it("leaves MCP configuration unchanged when no per-run bridge is available", () => {
+    const servers: NonNullable<AcpRuntimeOptions["mcpServers"]> = [
+      { type: "http", name: "External provider", url: "https://example.invalid/mcp", headers: [{ name: "Authorization", value: "Bearer provider-token" }] },
+    ];
+    expect(routePaperclipMcpServersThroughCallbackBridge(servers, null)).toEqual(servers);
+  });
+
+  it("fails closed instead of sending a controller credential to a remote target without a bridge", () => {
+    const servers: NonNullable<AcpRuntimeOptions["mcpServers"]> = [
+      { type: "http", name: "Paperclip runtime", url: "http://127.0.0.1:3100/mcp/runtime-tools", headers: [{ name: "Authorization", value: "Bearer host-token" }] },
+    ];
+    expect(() => routePaperclipMcpServersThroughCallbackBridge(servers, null))
+      .toThrow("Remote Paperclip MCP bridge is unavailable for a controller-local endpoint.");
+  });
+});
 
 describe("shared ACPX engine runtime behavior", () => {
   it("passes the current prompt, session, cancellation and diagnostic inputs to the runtime turn", async () => {

@@ -1589,6 +1589,7 @@ describe("environment routes", () => {
       driver: "local",
       description: "Current development machine",
       status: "active",
+      ownerAgentId: null,
       config: { shell: "zsh" },
       envVars: {},
     }, undefined, { db: routeDbTx });
@@ -2306,6 +2307,7 @@ describe("environment routes", () => {
       name: "Fake plugin Sandbox",
       driver: "sandbox",
       status: "active",
+      ownerAgentId: null,
       config: {
         provider: "fake-plugin",
         image: "fake:test",
@@ -2446,6 +2448,7 @@ describe("environment routes", () => {
       name: "Secure Sandbox",
       driver: "sandbox",
       status: "active",
+      ownerAgentId: null,
       config: {
         provider: "secure-plugin",
         template: "base",
@@ -2510,6 +2513,7 @@ describe("environment routes", () => {
       name: "Secure Sandbox",
       driver: "sandbox",
       status: "active",
+      ownerAgentId: null,
       config: {
         provider: "secure-plugin",
         template: "base",

@@ -7,12 +7,17 @@ import { shellQuote } from "@paperclipai/adapter-utils/ssh";
 import { buildCodexAuthInboundProvision, CODEX_AUTH_MERGE_EXTRACT_SCRIPT_NAME } from "./codex-auth-merge-scripts.js";
 import { resolvePaperclipInstanceRootForAdapter } from "@paperclipai/adapter-utils/server-utils";
 import { isCodexAuthCachePath, readSubscriptionAccountId } from "./codex-auth-cache.js";
+import {
+  isPaperclipMcpCallbackPath,
+  isPaperclipMcpCallbackUrl,
+} from "@paperclipai/adapter-utils/paperclip-mcp-callback-bridge";
 
 const TRUTHY_ENV_RE = /^(1|true|yes|on)$/i;
 const COPIED_SHARED_FILES = ["config.json", "config.toml", "instructions.md"] as const;
 const SYMLINKED_SHARED_FILES = ["auth.json"] as const;
 const MANAGED_MCP_BLOCK_START = "# BEGIN PAPERCLIP MANAGED MCP";
 const MANAGED_MCP_BLOCK_END = "# END PAPERCLIP MANAGED MCP";
+const LEGACY_PAPERCLIP_MCP_TOOL_TIMEOUT_SEC = 120;
 
 /**
  * The allowlist of managed `CODEX_HOME` entries that the codex-local adapter
@@ -72,6 +77,51 @@ export type ManagedCodexMcpGateway = {
   endpointPath: string;
   bearerToken: string;
 };
+
+/**
+ * Rewrite only controller-loopback MCP endpoints in the remote Codex config.
+ * The host-side bridge retains each original bearer token; the remote file gets
+ * the per-run bridge token. External MCP endpoints remain unchanged.
+ */
+export function routeManagedCodexMcpGatewaysThroughCallbackBridge(input: {
+  gateways: ManagedCodexMcpGateway[];
+  controllerApiUrl: string;
+  bridgeApiUrl?: string | null;
+  bridgeToken?: string | null;
+  routes: Array<{ path: string; headers: Record<string, string> }>;
+}): ManagedCodexMcpGateway[] {
+  if (!input.bridgeApiUrl || !input.bridgeToken) {
+    return input.gateways;
+  }
+  const routes = new Map(input.routes.map((route) => [route.path, route]));
+  const bridgeApiUrl = new URL(input.bridgeApiUrl);
+  return input.gateways.map((gateway) => {
+    let source: URL;
+    try {
+      source = new URL(gateway.endpointPath, input.controllerApiUrl);
+    } catch {
+      return gateway;
+    }
+    const loopback = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(source.hostname.toLowerCase());
+    if (source.protocol !== "http:" || !loopback) return gateway;
+    const builtInPath = isPaperclipMcpCallbackPath(source.pathname);
+    if (!builtInPath || source.search || source.hash) {
+      throw new Error("Remote Codex config contains an unapproved loopback MCP endpoint.");
+    }
+    const route = routes.get(source.pathname);
+    const hostAuthorization = Object.entries(route?.headers ?? {})
+      .find(([name]) => name.toLowerCase() === "authorization")?.[1]?.trim();
+    if (!route || !hostAuthorization || hostAuthorization !== `Bearer ${gateway.bearerToken}`) {
+      throw new Error("Remote Codex MCP route has no matching host-held authorization.");
+    }
+    const endpoint = new URL(source.pathname, bridgeApiUrl);
+    return {
+      ...gateway,
+      endpointPath: endpoint.toString(),
+      bearerToken: input.bridgeToken!,
+    };
+  });
+}
 
 export function mergeManagedCodexMcpGateways(
   primary: ManagedCodexMcpGateway[],
@@ -352,12 +402,16 @@ function buildManagedMcpBlock(input: {
       );
     }
     const url = new URL(gateway.endpointPath, input.apiBaseUrl).toString();
+    const isPaperclipManagedEndpoint = isPaperclipMcpCallbackUrl(url);
     lines.push(
       "",
       `[mcp_servers.${tomlString(managedName)}]`,
       `url = ${tomlString(url)}`,
       `http_headers = { Authorization = ${tomlString(`Bearer ${gateway.bearerToken}`)} }`,
     );
+    if (isPaperclipManagedEndpoint) {
+      lines.push(`tool_timeout_sec = ${LEGACY_PAPERCLIP_MCP_TOOL_TIMEOUT_SEC}`);
+    }
   });
   lines.push(MANAGED_MCP_BLOCK_END);
   return { block: lines.join("\n"), warnings };
