@@ -38,7 +38,7 @@ echo "owner_guards_queue_recovery_migration_runner=present"
 # The remote MCP bridge must be built with the same narrow internal endpoint
 # gate as the source tests. This catches overlays that ship the route proxy but
 # omit the allowlist or its unassigned-route fail-closed guard.
-ssh dokploy "sudo -n docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev --entrypoint sh '$image' -lc 'grep -R -F -q --include=\"*.mjs\" \"MCP route was not assigned to this run.\" /app/server/dist-runtime && grep -R -F -q --include=\"*.mjs\" \"/api/mcp/runtime-tools\" /app/server/dist-runtime && grep -R -F -q --include=\"*.mjs\" \"mcp/gateways\" /app/server/dist-runtime'"
+ssh dokploy "sudo -n docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev --entrypoint sh '$image' -lc 'grep -R -F -q --include=\"*.mjs\" \"MCP route was not assigned to this run.\" /app/server/dist-runtime && grep -R -F -q --include=\"*.mjs\" \"/mcp/runtime-tools\" /app/server/dist-runtime && grep -R -F -q --include=\"*.mjs\" \"mcp/gateways\" /app/server/dist-runtime'"
 echo "remote_mcp_bridge_bundle=present"
 
 # This fork's browser SSO identity mapping must survive every rebundle. A bind
