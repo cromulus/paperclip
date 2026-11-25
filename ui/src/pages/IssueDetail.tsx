@@ -8230,11 +8230,11 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
                   comments={threadComments}
                   commentsInitialLoading={commentsLoading}
                   initialHistoryPending={linkedCommentPending}
-                  initialMetadataPending={
-                    interactionsLoading ||
-                    attachmentsLoading ||
-                    workProductsLoading
-                  }
+                  // Pending interactions can change the composer takeover, so
+                  // resolve them before revealing the conversation. Attachments
+                  // and work products only enrich existing cards; let those
+                  // finish in the background rather than holding the chat view.
+                  initialMetadataPending={interactionsLoading}
                   initialHistoryError={
                     commentsError ||
                     interactionsError ||

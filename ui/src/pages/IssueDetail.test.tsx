@@ -1673,6 +1673,8 @@ describe("IssueDetail", () => {
 
   it.each(["comments", "description", "empty"])("coordinates %s with the initial cards and supporting history", async (content) => {
     const history = createDeferred<[]>();
+    const interactions = createDeferred<[]>();
+    const ancillaryMetadata = createDeferred<[]>();
     mockIssuesApi.get.mockResolvedValue(createIssue({
       description: content === "description" ? "Saved task description" : null,
     }));
@@ -1680,9 +1682,9 @@ describe("IssueDetail", () => {
     mockActivityApi.forIssue.mockReturnValue(history.promise);
     mockActivityApi.runsForIssue.mockReturnValue(history.promise);
     mockHeartbeatsApi.liveRunsForIssue.mockReturnValue(history.promise);
-    mockIssuesApi.listInteractions.mockReturnValue(history.promise);
-    mockIssuesApi.listAttachments.mockReturnValue(history.promise);
-    mockIssuesApi.listWorkProducts.mockReturnValue(history.promise);
+    mockIssuesApi.listInteractions.mockReturnValue(interactions.promise);
+    mockIssuesApi.listAttachments.mockReturnValue(ancillaryMetadata.promise);
+    mockIssuesApi.listWorkProducts.mockReturnValue(ancillaryMetadata.promise);
 
     await act(async () => {
       renderIssueView();
@@ -1695,8 +1697,20 @@ describe("IssueDetail", () => {
     // Resolving metadata fills the same thread rather than replacing its content.
     history.resolve([]);
     await waitForAssertion(() => {
+      expect(mockIssueChatThreadRender.mock.calls.at(-1)?.[0]).toMatchObject({ initialHistoryPending: true });
+    });
+    // Pending interactions can change composer takeover, so they still hold
+    // the initial reveal until their state is known.
+    interactions.resolve([]);
+    await waitForAssertion(() => {
       expect(mockIssueChatThreadRender.mock.calls.at(-1)?.[0]).toMatchObject({ initialHistoryPending: false });
     });
+    // Attachment and artifact metadata enrich existing cards but do not delay
+    // showing the conversation after interaction/run state is known.
+    expect(mockIssuesApi.listAttachments).toHaveBeenCalled();
+    expect(mockIssuesApi.listWorkProducts).toHaveBeenCalled();
+    ancillaryMetadata.resolve([]);
+    await flushReact();
   });
 
   it("loads from the pending state into issue detail without changing hook order", async () => {
