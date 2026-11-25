@@ -46,6 +46,9 @@ echo "remote_mcp_bridge_bundle=present"
 ssh dokploy "sudo -n docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev --entrypoint sh '$image' -lc 'grep -R -F -q --include=\"*.mjs\" \"NMC_PROXY_OWNER_SUBJECT\" /app/server/dist-runtime && grep -R -F -q --include=\"*.mjs\" \"proxyOwnerMiddleware\" /app/server/dist-runtime'"
 echo "trusted_proxy_owner_bundle=present"
 
+ssh dokploy "sudo -n docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev --entrypoint sh '$image' -lc 'grep -R -F -q --include=\"*.mjs\" \"PAPERCLIP_MCP_PUBLIC_URL\" /app/server/dist-runtime && grep -R -F -q --include=\"*.mjs\" \"Paperclip-hosted connectors are disabled by this instance owner\" /app/server/dist-runtime'"
+echo "public_mcp_origin_and_hosted_connector_policy=present"
+
 # Start the real image entrypoint with a fresh in-container app home, no
 # production environment, no secrets, no network, and no persistent mounts.
 # Reaching the documented missing-auth-secret guard proves initialization got

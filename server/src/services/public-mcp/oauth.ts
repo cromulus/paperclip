@@ -34,7 +34,7 @@ export class PublicMcpDisabledError extends McpOAuthError {
 const invalidGrant = () => new McpOAuthError("invalid_grant", "Authorization is expired, revoked, or invalid.");
 
 export function publicMcpConfig(env: NodeJS.ProcessEnv = process.env, authPublicBaseUrl?: string) {
-  const origin = env.PAPERCLIP_PUBLIC_URL ?? authPublicBaseUrl;
+  const origin = env.PAPERCLIP_MCP_PUBLIC_URL ?? env.PAPERCLIP_PUBLIC_URL ?? authPublicBaseUrl;
   if (!origin) return null;
   const normalizeOrigin = (value: string, setting: string) => {
     const url = new URL(value);

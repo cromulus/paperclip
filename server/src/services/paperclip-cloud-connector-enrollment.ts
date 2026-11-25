@@ -139,6 +139,9 @@ export async function startPaperclipCloudConnectorEnrollment(input: {
   env?: NodeJS.ProcessEnv;
   request?: typeof fetch;
 }): Promise<PaperclipCloudConnectorEnrollmentStatus> {
+  if ((input.env ?? process.env).NMC_DISABLE_HOSTED_CONNECTORS === "true") {
+    throw new Error("Paperclip-hosted connectors are disabled by this instance owner");
+  }
   return withEnrollmentMutationLock(() => startPaperclipCloudConnectorEnrollmentUnlocked(input));
 }
 
@@ -240,6 +243,9 @@ export async function completePaperclipCloudConnectorEnrollment(input: {
   env?: NodeJS.ProcessEnv;
   request?: typeof fetch;
 }): Promise<PaperclipCloudConnectorEnrollmentStatus> {
+  if ((input.env ?? process.env).NMC_DISABLE_HOSTED_CONNECTORS === "true") {
+    throw new Error("Paperclip-hosted connectors are disabled by this instance owner");
+  }
   return withEnrollmentMutationLock(() => completePaperclipCloudConnectorEnrollmentUnlocked(input));
 }
 

@@ -198,6 +198,7 @@ export class PaperclipCloudConnectorError extends Error {
 export function paperclipCloudConnectorConfigFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): PaperclipCloudConnectorConfig | null {
+  if (env.NMC_DISABLE_HOSTED_CONNECTORS === "true") return null;
   const localIdentity = loadPaperclipCloudConnectorIdentity();
   const legacyConfigured = [
     env.PAPERCLIP_ID_CONNECTOR_INSTANCE_ID,
