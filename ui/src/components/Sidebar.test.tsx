@@ -20,6 +20,12 @@ const mockInstanceSettingsApi = vi.hoisted(() => ({
   getExperimental: vi.fn(),
 }));
 
+const mockPrefetchSidebarRoute = vi.hoisted(() => vi.fn());
+
+vi.mock("../lib/sidebar-route-prefetch", () => ({
+  prefetchSidebarRoute: mockPrefetchSidebarRoute,
+}));
+
 vi.mock("@/lib/router", () => ({
   NavLink: ({ to, children, className, ...props }: {
     to: string;
@@ -198,6 +204,28 @@ describe("Sidebar", () => {
     const navSearchLink = [...container.querySelectorAll("nav a")]
       .find((anchor) => anchor.textContent?.trim() === "Search");
     expect(navSearchLink?.getAttribute("href")).toBe("/search");
+
+    flushSync(() => {
+      root.unmount();
+    });
+  });
+
+  it("prefetches a destination only after sidebar intent and scopes it to the selected company", async () => {
+    mockInstanceSettingsApi.getExperimental.mockResolvedValue({ enableIsolatedWorkspaces: false });
+    const root = await renderSidebar();
+    const dashboardLink = [...container.querySelectorAll("nav a")]
+      .find((anchor) => anchor.textContent?.trim() === "Dashboard");
+
+    expect(dashboardLink).toBeDefined();
+    expect(mockPrefetchSidebarRoute).not.toHaveBeenCalled();
+    flushSync(() => dashboardLink?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
+
+    expect(mockPrefetchSidebarRoute).toHaveBeenCalledTimes(1);
+    expect(mockPrefetchSidebarRoute).toHaveBeenCalledWith(
+      "/dashboard",
+      "company-1",
+      expect.any(QueryClient),
+    );
 
     flushSync(() => {
       root.unmount();

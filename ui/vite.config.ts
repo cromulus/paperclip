@@ -23,7 +23,18 @@ export default defineConfig(({ mode }) => ({
         codeSplitting: {
           groups: [
             { name: "board-startup", tags: ["$initial"], priority: 10 },
+            // StatusIcon is used by both the Markdown renderer and ordinary
+            // dashboard/task summaries. Keep the small status widget separate
+            // so those pages do not pull the full rich-text renderer.
+            { name: "status-icons", test: /\/components\/StatusIcon\.tsx$/, priority: 11 },
+            // Shared UI pieces used by task lists and rich text stay in
+            // neutral chunks instead of pulling their consumers into either
+            // the task-chat or Markdown chunks.
+            { name: "issue-reference-chip", test: /\/components\/LockedIssueChip\.tsx$/, priority: 12 },
+            { name: "task-sort-icons", test: /lucide-react\/dist\/esm\/icons\/arrow-(?:down|up)\.mjs$/, priority: 12 },
+            { name: "info-icon", test: /lucide-react\/dist\/esm\/icons\/info\.mjs$/, priority: 12 },
             { name: "chat-draft-state", test: /\/lib\/composer-draft\.ts$/, priority: 11 },
+            { name: "issue-navigation-state", test: /\/lib\/issueDetailBreadcrumb\.ts$/, priority: 11 },
             // Message and plugin Markdown is shared by chat, issue detail, and
             // other surfaces. Keep it out of the task-detail workbench chunk
             // so a chat page never needs to download the full issue UI.
@@ -38,10 +49,6 @@ export default defineConfig(({ mode }) => ({
             // Chat views consume transcript hooks also used by task detail.
             // Keep those small shared runtime pieces out of the detail chunk.
             { name: "chat-transcripts", test: /\/components\/transcript\/(?:useLiveRunTranscripts|useNativeRunTranscripts|native-run-events|read-transcript-request)\.ts$/, priority: 7 },
-            // The list implementation is also used by plugin SDK views. Its
-            // dependency graph should load only for those views or task pages.
-            { name: "issue-lists", test: /\/components\/(?:IssuesList|LegacyIssuesList)\.tsx$/, priority: 6 },
-            { name: "issue-detail", test: /\/src\/pages\/IssueDetail\.tsx$/, priority: 5 },
           ],
         },
       },

@@ -1,5 +1,5 @@
 import { AgentIdentity } from "@/components/AgentIdentity";
-import { memo, useMemo } from "react";
+import { lazy, memo, Suspense, useMemo } from "react";
 import { Link } from "@/lib/router";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import type { Issue } from "@paperclipai/shared";
@@ -10,8 +10,6 @@ import { queryKeys } from "../lib/queryKeys";
 import { cn, relativeTime } from "../lib/utils";
 import { Clock3 } from "lucide-react";
 import { StatusGlyph } from "./StatusGlyph";
-import { RunChatSurface } from "./RunChatSurface";
-import { useLiveRunTranscripts } from "./transcript/useLiveRunTranscripts";
 import { usePublishSharedQueryData, useSharedPollingQuery } from "../hooks/useSharedPolling";
 
 const MIN_DASHBOARD_RUNS = 4;
@@ -20,7 +18,8 @@ const DASHBOARD_LOG_POLL_INTERVAL_MS = 15_000;
 const DASHBOARD_LOG_READ_LIMIT_BYTES = 64_000;
 const DASHBOARD_MAX_CHUNKS_PER_RUN = 40;
 const EMPTY_TRANSCRIPT: TranscriptEntry[] = [];
-const EMPTY_RUNS: LiveRunForIssue[] = [];
+const RunChatSurface = lazy(() => import("./RunChatSurface").then((module) => ({ default: module.RunChatSurface })));
+const ActiveAgentsTranscriptProvider = lazy(() => import("./ActiveAgentsTranscriptProvider").then((module) => ({ default: module.ActiveAgentsTranscriptProvider })));
 
 const runStatusLabels: Record<string, string> = {
   running: "Running",
@@ -120,14 +119,19 @@ export function ActiveAgentsPanel({
     return map;
   }, [issueQueries]);
 
-  const { transcriptByRun, hasOutputForRun } = useLiveRunTranscripts({
-    runs: showTranscripts ? visibleRuns : EMPTY_RUNS,
-    companyId,
-    maxChunksPerRun: DASHBOARD_MAX_CHUNKS_PER_RUN,
-    logPollIntervalMs: DASHBOARD_LOG_POLL_INTERVAL_MS,
-    logReadLimitBytes: DASHBOARD_LOG_READ_LIMIT_BYTES,
-    enableRealtimeUpdates: false,
-  });
+  const renderCards = (transcriptByRun: Map<string, TranscriptEntry[]> = new Map(), hasOutputForRun: (runId: string) => boolean = () => false) => visibleRuns.map((run) => (
+    <AgentRunCard
+      key={run.id}
+      companyId={companyId}
+      run={run}
+      issue={run.issueId ? issueById.get(run.issueId) : undefined}
+      transcript={transcriptByRun.get(run.id) ?? EMPTY_TRANSCRIPT}
+      hasOutput={hasOutputForRun(run.id)}
+      showTranscript={showTranscripts}
+      issueLoadFailed={issueQueries.some((query, index) => visibleIssueIds[index] === run.issueId && query.isError)}
+      className={cardClassName}
+    />
+  ));
 
   return (
     <div>
@@ -139,21 +143,26 @@ export function ActiveAgentsPanel({
           <p className="text-sm text-muted-foreground">{emptyMessage}</p>
         </div>
       ) : (
-        <div className={cn("grid grid-cols-1 items-start gap-2 sm:grid-cols-2 sm:gap-4 xl:grid-cols-4", gridClassName)}>
-          {visibleRuns.map((run) => (
-            <AgentRunCard
-              key={run.id}
+        showTranscripts ? (
+          <Suspense fallback={<p className="text-xs text-muted-foreground">Loading run transcripts…</p>}>
+            <ActiveAgentsTranscriptProvider
               companyId={companyId}
-              run={run}
-              issue={run.issueId ? issueById.get(run.issueId) : undefined}
-              transcript={transcriptByRun.get(run.id) ?? EMPTY_TRANSCRIPT}
-              hasOutput={hasOutputForRun(run.id)}
-              showTranscript={showTranscripts}
-              issueLoadFailed={issueQueries.some((query, index) => visibleIssueIds[index] === run.issueId && query.isError)}
-              className={cardClassName}
-            />
-          ))}
-        </div>
+              runs={visibleRuns}
+              maxChunksPerRun={DASHBOARD_MAX_CHUNKS_PER_RUN}
+              logPollIntervalMs={DASHBOARD_LOG_POLL_INTERVAL_MS}
+              logReadLimitBytes={DASHBOARD_LOG_READ_LIMIT_BYTES}
+              enableRealtimeUpdates={false}
+            >{({ transcriptByRun, hasOutputForRun }) => (
+              <div className={cn("grid grid-cols-1 items-start gap-2 sm:grid-cols-2 sm:gap-4 xl:grid-cols-4", gridClassName)}>
+                {renderCards(transcriptByRun, hasOutputForRun)}
+              </div>
+            )}</ActiveAgentsTranscriptProvider>
+          </Suspense>
+        ) : (
+          <div className={cn("grid grid-cols-1 items-start gap-2 sm:grid-cols-2 sm:gap-4 xl:grid-cols-4", gridClassName)}>
+            {renderCards()}
+          </div>
+        )
       )}
       {showMoreLink && runs.length > 0 && (
         <div className="mt-3 flex justify-end text-xs text-muted-foreground">
@@ -249,12 +258,14 @@ export const AgentRunCard = memo(function AgentRunCard({
 
       {showTranscript && (
         <div className="min-h-0 flex-1 overflow-y-auto p-3">
-          <RunChatSurface
-            run={run}
-            transcript={transcript}
-            hasOutput={hasOutput}
-            companyId={companyId}
-          />
+          <Suspense fallback={<p className="text-xs text-muted-foreground">Loading run transcript…</p>}>
+            <RunChatSurface
+              run={run}
+              transcript={transcript}
+              hasOutput={hasOutput}
+              companyId={companyId}
+            />
+          </Suspense>
         </div>
       )}
     </div>

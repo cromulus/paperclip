@@ -94,7 +94,7 @@ describe("LiveUpdatesProvider issue invalidation", () => {
     const observer = new QueryObserver(client, { queryKey: targetKey, queryFn: fetchLatest, staleTime: 30_000 });
     const unsubscribe = observer.subscribe(() => undefined);
     await vi.waitFor(() => expect(fetchLatest).toHaveBeenCalledOnce());
-    await vi.waitFor(() => expect(client.getQueryData(targetKey)?.messages).toEqual([{ id: "new-reply" }]));
+    await vi.waitFor(() => expect(client.getQueryData<{ messages: Array<{ id: string }> }>(targetKey)?.messages).toEqual([{ id: "new-reply" }]));
     unsubscribe();
     client.clear();
   });

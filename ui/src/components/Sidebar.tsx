@@ -24,7 +24,7 @@ import {
   Users,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { SidebarSection } from "./SidebarSection";
 import { SidebarNavItem } from "./SidebarNavItem";
 import { SidebarAgents } from "./SidebarAgents";
@@ -49,6 +49,7 @@ import { PluginSlotOutlet } from "@/plugins/slots";
 import { PluginLauncherOutlet } from "@/plugins/launchers";
 import { SidebarCompanyMenu } from "./SidebarCompanyMenu";
 import { primarySidebarStyles } from "./primary-sidebar-styles";
+import { prefetchSidebarRoute } from "../lib/sidebar-route-prefetch";
 
 export function Sidebar({ children }: { children?: ReactNode }) {
   const { openNewIssue } = useDialogActions();
@@ -58,6 +59,8 @@ export function Sidebar({ children }: { children?: ReactNode }) {
   const [workOpen, setWorkOpen] = useState(true);
   const [organizationOpen, setOrganizationOpen] = useState(true);
   const { selectedCompanyId, selectedCompany } = useCompany();
+  const queryClient = useQueryClient();
+  const prefetch = (to: string) => () => prefetchSidebarRoute(to, selectedCompanyId, queryClient);
   const { collapsed, peeking } = useSidebar();
   const { enabled: streamlinedUiEnabled } = useStreamlinedUiEnabled();
   const rail = collapsed && !peeking;
@@ -184,8 +187,19 @@ export function Sidebar({ children }: { children?: ReactNode }) {
               width; a nav row also keeps search reachable from the
               collapsed rail, where the old header icon was dropped entirely.
               Cmd/Ctrl+K remains the keyboard path (command palette). */}
-          <SidebarNavItem to="/search" label="Search" icon={Search} />
-          <SidebarNavItem to="/dashboard" label="Dashboard" icon={LayoutDashboard} liveCount={liveRunCount} />
+          <SidebarNavItem
+            to="/search"
+            label="Search"
+            icon={Search}
+            onIntent={prefetch("/search")}
+          />
+          <SidebarNavItem
+            to="/dashboard"
+            label="Dashboard"
+            icon={LayoutDashboard}
+            liveCount={liveRunCount}
+            onIntent={prefetch("/dashboard")}
+          />
           {!combinedInboxTasks ? (
             <SidebarNavItem
               to="/inbox"
@@ -195,9 +209,12 @@ export function Sidebar({ children }: { children?: ReactNode }) {
               badgeLabel="unread"
               badgeTone={inboxBadge.failedRuns > 0 ? "danger" : "default"}
               alert={inboxBadge.failedRuns > 0}
+              onIntent={prefetch("/inbox")}
             />
           ) : null}
-          {agentChatEnabled && !chatRail ? <SidebarNavItem to="/chats" label="Chat" icon={MessageCircle} /> : null}
+          {agentChatEnabled && !chatRail ? (
+            <SidebarNavItem to="/chats" label="Chat" icon={MessageCircle} onIntent={prefetch("/chats")} />
+          ) : null}
           {showDecisions ? (
             <SidebarNavItem
               to="/decisions"
@@ -220,7 +237,12 @@ export function Sidebar({ children }: { children?: ReactNode }) {
               agents you talk to live in the Chat surface's own secondary rail
               (ChatContextualSidebar), not in the primary nav. */}
           {chatRail ? (
-            <SidebarNavItem to="/chats" label="Chat" icon={MessageCircle} />
+            <SidebarNavItem
+              to="/chats"
+              label="Chat"
+              icon={MessageCircle}
+              onIntent={prefetch("/chats")}
+            />
           ) : null}
           {/* Combined Inbox + Task List: Inbox is a view inside Tasks, so the
               unread/failed-run badge rides on Tasks. */}
@@ -233,23 +255,34 @@ export function Sidebar({ children }: { children?: ReactNode }) {
               badgeLabel="unread"
               badgeTone={inboxBadge.failedRuns > 0 ? "danger" : "default"}
               alert={inboxBadge.failedRuns > 0}
+              onIntent={prefetch("/issues")}
             />
           ) : (
-            <SidebarNavItem to="/issues" label="Tasks" icon={CircleCheck} />
+            <SidebarNavItem to="/issues" label="Tasks" icon={CircleCheck} onIntent={prefetch("/issues")} />
           )}
           {streamlinedUiEnabled ? (
             <>
-              <SidebarNavItem to="/projects" label="Projects" icon={FolderOpen} />
+              <SidebarNavItem to="/projects" label="Projects" icon={FolderOpen} onIntent={prefetch("/projects")} />
               <SidebarStarredProjects />
             </>
           ) : null}
-          <SidebarNavItem to="/routines" label="Routines" icon={Repeat} />
-          <SidebarNavItem to="/artifacts" label="Artifacts" icon={Package} />
+          <SidebarNavItem
+            to="/routines"
+            label="Routines"
+            icon={Repeat}
+            onIntent={prefetch("/routines")}
+          />
+          <SidebarNavItem
+            to="/artifacts"
+            label="Artifacts"
+            icon={Package}
+            onIntent={prefetch("/artifacts")}
+          />
           {showCases ? (
             <SidebarNavItem to="/cases" label="Cases" icon={Layers} textBadge="beta" />
           ) : null}
           {showGoalsLink ? (
-            <SidebarNavItem to="/goals" label="Goals" icon={Target} />
+            <SidebarNavItem to="/goals" label="Goals" icon={Target} onIntent={prefetch("/goals")} />
           ) : goalsLinkPending ? (
             <div
               data-testid="sidebar-goals-placeholder"
@@ -258,7 +291,12 @@ export function Sidebar({ children }: { children?: ReactNode }) {
             />
           ) : null}
           {showWorkspacesLink ? (
-            <SidebarNavItem to="/workspaces" label="Workspaces" icon={GitBranch} />
+              <SidebarNavItem
+                to="/workspaces"
+                label="Workspaces"
+                icon={GitBranch}
+                onIntent={prefetch("/workspaces")}
+              />
           ) : null}
           <PluginSlotOutlet
             errorBehavior="hidden"
@@ -282,10 +320,10 @@ export function Sidebar({ children }: { children?: ReactNode }) {
             label="Org"
             collapsible={{ open: organizationOpen, onOpenChange: setOrganizationOpen }}
           >
-            <SidebarNavItem to="/agents" label="Agents" icon={Users} />
-            <SidebarNavItem to="/skills" label="Skills" icon={Boxes} />
-            <SidebarNavItem to="/apps" label="Connectors" icon={Unplug} />
-            <SidebarNavItem to="/activity" label="Audit" icon={History} />
+            <SidebarNavItem to="/agents" label="Agents" icon={Users} onIntent={prefetch("/agents")} />
+            <SidebarNavItem to="/skills" label="Skills" icon={Boxes} onIntent={prefetch("/skills")} />
+            <SidebarNavItem to="/apps" label="Connectors" icon={Unplug} onIntent={prefetch("/apps")} />
+            <SidebarNavItem to="/activity" label="Audit" icon={History} onIntent={prefetch("/activity")} />
           </SidebarSection>
         ) : null}
 
@@ -301,11 +339,11 @@ export function Sidebar({ children }: { children?: ReactNode }) {
               label="Organization"
               collapsible={{ open: organizationOpen, onOpenChange: setOrganizationOpen }}
             >
-              <SidebarNavItem to="/org" label="Org" icon={Network} />
-              <SidebarNavItem to="/apps" label="Connectors" icon={Unplug} />
-              <SidebarNavItem to="/timeline" label="Timeline" icon={GanttChartSquare} />
-              <SidebarNavItem to="/costs" label="Costs" icon={DollarSign} />
-              <SidebarNavItem to="/activity" label="Activity" icon={History} />
+              <SidebarNavItem to="/org" label="Org" icon={Network} onIntent={prefetch("/org")} />
+              <SidebarNavItem to="/apps" label="Connectors" icon={Unplug} onIntent={prefetch("/apps")} />
+              <SidebarNavItem to="/timeline" label="Timeline" icon={GanttChartSquare} onIntent={prefetch("/timeline")} />
+              <SidebarNavItem to="/costs" label="Costs" icon={DollarSign} onIntent={prefetch("/costs")} />
+              <SidebarNavItem to="/activity" label="Activity" icon={History} onIntent={prefetch("/activity")} />
               <SidebarNavItem to="/activity/commentary" label="Commentary" icon={History} />
               <SidebarNavItem to="/company/settings" label="Settings" icon={Settings} />
             </SidebarSection>

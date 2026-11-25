@@ -128,6 +128,18 @@ describe("ActiveAgentsPanel", () => {
     vi.clearAllMocks();
   });
 
+  it("loads the run transcript surface only when a card requests it", async () => {
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<AgentRunCard companyId="company-1" run={createRun(1)} showTranscript />);
+    });
+    await flushReact();
+
+    expect(container.textContent).toContain("Run output");
+
+    await act(async () => root.unmount());
+  });
+
   it("links hidden active/recent runs to the full live dashboard", async () => {
     const root = createRoot(container);
     const queryClient = new QueryClient({
