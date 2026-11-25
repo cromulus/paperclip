@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Agent } from "@paperclipai/shared";
 import { AgentConversationsSidebar } from "./AgentConversationsSidebar";
 import { queryKeys } from "@/lib/queryKeys";
-const state = vi.hoisted(() => ({ companyId: "company-a", navigate: vi.fn(), closeSidebar: vi.fn(), ensure: vi.fn(), getAgent: vi.fn() }));
+const state = vi.hoisted(() => ({ companyId: "company-a", navigate: vi.fn(), closeSidebar: vi.fn(), ensure: vi.fn(), getAgent: vi.fn(), bootstrap: vi.fn() }));
 vi.mock("@/context/CompanyContext", () => ({ useCompany: () => ({ selectedCompanyId: state.companyId }) }));
 vi.mock("@/context/SidebarContext", () => ({ useSidebar: () => ({ isMobile: true, setSidebarOpen: state.closeSidebar }) }));
 vi.mock("@/hooks/useAgentChatEnabled", () => ({ useAgentChatEnabled: () => ({ enabled: true, loaded: true }) }));
@@ -15,7 +15,7 @@ vi.mock("@/lib/router", () => ({
   Link: ({ to, children, ...props }: { to: string; children: ReactNode }) => <a href={to} {...props}>{children}</a>,
 }));
 vi.mock("@/api/agents", () => ({ agentsApi: { list: vi.fn(), get: state.getAgent } }));
-vi.mock("@/api/agentChats", () => ({ agentChatsApi: { list: vi.fn(), ensure: state.ensure } }));
+vi.mock("@/api/agentChats", () => ({ agentChatsApi: { list: vi.fn(), ensure: state.ensure, bootstrap: state.bootstrap } }));
 vi.mock("@/api/auth", () => ({ authApi: { getSession: () => ({ user: { id: "user-a" } }) } }));
 vi.mock("./AgentAvatar", () => ({ AgentAvatar: () => null }));
 const memberships = vi.hoisted(() => ({ agentMemberships: {} as Record<string, string> }));
@@ -38,8 +38,9 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
   state.companyId = "company-a";
-  state.navigate.mockReset(); state.closeSidebar.mockReset(); state.ensure.mockReset(); state.getAgent.mockReset();
+  state.navigate.mockReset(); state.closeSidebar.mockReset(); state.ensure.mockReset(); state.getAgent.mockReset(); state.bootstrap.mockReset();
   state.ensure.mockImplementation(async (_company, id) => chat(id));
+  state.bootstrap.mockResolvedValue({ agent: { id: "bob" }, chat: null, messages: [] });
   memberships.agentMemberships = {};
   client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   client.setQueryData(queryKeys.auth.session, { user: { id: "user-a" } });
@@ -64,6 +65,24 @@ it("adds through the server and reopens one cached conversation without a duplic
   await choose("bob"); await render();
   expect(container.querySelectorAll('a[href="/chats/bob"]')).toHaveLength(1);
   expect(client.getQueryData(queryKeys.agentChats.list("company-a", "user-a"))).toHaveLength(2);
+});
+it("prefetches the intended teammate from the active conversation sidebar on pointer and keyboard intent", async () => {
+  await render();
+  const bobLink = container.querySelector<HTMLAnchorElement>('a[href="/chats/bob"]')!;
+  expect(bobLink).not.toBeNull();
+  await act(async () => {
+    bobLink.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+  });
+  await act(async () => {
+    bobLink.focus();
+    await new Promise(resolve => setTimeout(resolve, 0));
+  });
+
+  expect(state.bootstrap).toHaveBeenCalledOnce();
+  expect(state.bootstrap).toHaveBeenCalledWith("company-a", "bob");
+  expect(client.getQueryData(queryKeys.agentChats.bootstrap("company-a", "user-a", "bob"))).toEqual({ agent: { id: "bob" }, chat: null, messages: [] });
+  expect(state.ensure).not.toHaveBeenCalled();
 });
 it("keeps failures retryable in the picker and closes it on company changes", async () => {
   state.ensure.mockRejectedValueOnce(new Error("Couldn’t open chat. Try again."));

@@ -229,6 +229,21 @@ describe("lightweight Agent Chat route", () => {
     expect(container.textContent).not.toContain("Finance cached note");
   });
 
+  it("keeps a cold route bootstrap key stable when the agent directory resolves later", async () => {
+    client.removeQueries({ queryKey: queryKeys.agentChats.bootstrap("company-a", "user-a", "cos") });
+    await render();
+    expect(agentChatsApi.bootstrap).toHaveBeenCalledOnce();
+    expect(agentChatsApi.bootstrap).toHaveBeenCalledWith("company-a", "cos");
+
+    client.setQueryData(queryKeys.agents.list("company-a"), [{
+      id: "canonical-cos-id", companyId: "company-a", name: "Chief of Staff", urlKey: "cos",
+      role: "assistant", title: null, icon: null, status: "idle",
+    } as never]);
+    await render();
+
+    expect(agentChatsApi.bootstrap).toHaveBeenCalledOnce();
+  });
+
   it("locks the composer during guard verification and preserves the reviewed draft", async () => {
     let resolveGuard!: (value: AgentChatBootstrapResponse) => void;
     await render();

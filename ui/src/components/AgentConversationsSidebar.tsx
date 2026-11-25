@@ -3,14 +3,17 @@ import { useAgentChatNavigation, useOpenAgentChat } from "@/hooks/useAgentChatNa
 import { useLocation, useNavigate } from "@/lib/router";
 import { useSidebar } from "@/context/SidebarContext";
 import { agentRouteRef } from "@/lib/utils";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
+import type { Agent } from "@paperclipai/shared";
 import { agentsApi } from "@/api/agents";
 import { queryKeys } from "@/lib/queryKeys";
 import { resourceMembershipState, useResourceMemberships } from "@/hooks/useResourceMemberships";
+import { prefetchAgentChatBootstrap } from "@/lib/prefetch-agent-chat";
 
 /** Account- and company-scoped data for the secondary chat navigation. */
 export function AgentConversationsSidebar() {
   const { companyId, userId, agents, chats, session } = useAgentChatNavigation();
+  const queryClient = useQueryClient();
   const openChat = useOpenAgentChat(companyId, userId);
   const navigate = useNavigate();
   const memberships = useResourceMemberships(companyId);
@@ -43,6 +46,7 @@ export function AgentConversationsSidebar() {
     .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
   const previews = Object.fromEntries((chats.data ?? []).filter(chat => chat.conversationState === "active")
     .map(chat => [chat.conversationAgentId!, "Working…"]));
+  const onIntent = (agent: Agent) => prefetchAgentChatBootstrap(queryClient, companyId, userId, agent);
   return <AgentConversationSidebar key={`${companyId}:${userId}`} agents={[...conversations, ...teammates]} availableAgents={roster}
     existingChatAgentIds={conversations.map(agent => agent.id)}
     activeId={active?.id} previews={previews}
@@ -52,6 +56,7 @@ export function AgentConversationsSidebar() {
     historyLoading={historyAgents.some(result => result.isPending)}
     historyError={historyAgents.find(result => result.error)?.error}
     onRetryHistory={() => { historyAgents.filter(result => result.isError).forEach(result => { void result.refetch(); }); }}
+    onIntent={onIntent}
     onAddChat={openChat}
     onSelect={agent => {
       navigate(`/chats/${encodeURIComponent(agent.status === "terminated" ? agent.id : agentRouteRef(agent))}`);

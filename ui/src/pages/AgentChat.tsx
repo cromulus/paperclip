@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Agent } from "@paperclipai/shared";
 import { agentChatsApi } from "@/api/agentChats";
@@ -29,7 +29,15 @@ export function AgentChat() {
   const cachedAgent = cachedAgents.find(agent =>
     agent.id === agentRef || agentRouteRef(agent) === agentRef,
   );
-  const bootstrapAgentRef = cachedAgent?.id ?? agentRef;
+  // Keep the key chosen on first entry for this route reference. On a cold
+  // deep link the agent directory may arrive after the bootstrap request has
+  // started; switching from the route slug to its UUID mid-flight would issue
+  // the same bootstrap twice. The canonical result is still copied below.
+  const bootstrapScope = useRef({ agentRef, agentId: cachedAgent?.id ?? agentRef });
+  if (bootstrapScope.current.agentRef !== agentRef) {
+    bootstrapScope.current = { agentRef, agentId: cachedAgent?.id ?? agentRef };
+  }
+  const bootstrapAgentRef = bootstrapScope.current.agentId;
   const bootstrapKey = useMemo(
     () => queryKeys.agentChats.bootstrap(selectedCompanyId, userId, bootstrapAgentRef),
     [selectedCompanyId, userId, bootstrapAgentRef],

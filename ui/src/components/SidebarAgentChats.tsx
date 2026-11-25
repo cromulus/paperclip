@@ -1,7 +1,6 @@
 import { useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Agent } from "@paperclipai/shared";
-import { agentChatsApi } from "@/api/agentChats";
 import { agentsApi } from "@/api/agents";
 import { authApi } from "@/api/auth";
 import { useCompany } from "@/context/CompanyContext";
@@ -16,11 +15,7 @@ import { agentRouteRef } from "@/lib/utils";
 import { AgentChatSidebar } from "./AgentChatSidebar";
 import { AgentChatPicker } from "./AgentChatPicker";
 import { useSidebar } from "@/context/SidebarContext";
-
-function cachedSessionUserId(queryClient: ReturnType<typeof useQueryClient>): string | null {
-  const session = queryClient.getQueryData<{ user?: { id?: string | null } | null; session?: { userId?: string | null } | null }>(queryKeys.auth.session);
-  return session?.user?.id ?? session?.session?.userId ?? null;
-}
+import { prefetchAgentChatBootstrap } from "@/lib/prefetch-agent-chat";
 
 export function SidebarAgentChats() {
   const { selectedCompanyId } = useCompany();
@@ -55,18 +50,7 @@ function CompanyAgentChats({ companyId, userId }: { companyId: string | null; us
   const mutation = useResourceMembershipMutation(companyId);
   const stars = memberships.data?.starredAgentIds ?? [];
   const prefetchAgentChat = useCallback((agent: Agent) => {
-    if (!companyId || !userId || !agent.id) return;
-    void import("../pages/AgentChat").catch(() => undefined);
-    void queryClient.prefetchQuery({
-      queryKey: queryKeys.agentChats.bootstrap(companyId, userId, agent.id),
-      queryFn: async () => {
-        if (cachedSessionUserId(queryClient) !== userId) throw new Error("Account changed before chat prefetch.");
-        const result = await agentChatsApi.bootstrap(companyId, agent.id);
-        if (cachedSessionUserId(queryClient) !== userId) throw new Error("Account changed during chat prefetch.");
-        return result;
-      },
-      staleTime: 30_000,
-    }).catch(() => undefined);
+    prefetchAgentChatBootstrap(queryClient, companyId, userId, agent);
   }, [companyId, queryClient, userId]);
   const location = useLocation();
   const activeRef = location.pathname.match(/\/chats\/([^/]+)/)?.[1];

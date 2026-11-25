@@ -20,6 +20,7 @@ export interface AgentConversationSidebarProps {
   onRetry?: () => void;
   initialSearch?: string;
   onSelect?: (agent: Agent, signal?: AbortSignal) => void | Promise<void>;
+  onIntent?: (agent: Agent) => void;
   onBrowse?: () => void;
   onAddChat?: (agent: Agent, signal?: AbortSignal) => void | Promise<void>;
   historyLoading?: boolean;
@@ -28,7 +29,7 @@ export interface AgentConversationSidebarProps {
 }
 
 /** Searchable navigation for one conversation per agent. */
-export function AgentConversationSidebar({ agents, existingChatAgentIds, availableAgents = agents, activeId, previews = {}, loading = false, error, onRetry, initialSearch = "", onSelect, onBrowse, onAddChat, historyLoading, historyError, onRetryHistory }: AgentConversationSidebarProps) {
+export function AgentConversationSidebar({ agents, existingChatAgentIds, availableAgents = agents, activeId, previews = {}, loading = false, error, onRetry, initialSearch = "", onSelect, onIntent, onBrowse, onAddChat, historyLoading, historyError, onRetryHistory }: AgentConversationSidebarProps) {
   const navigate = useNavigate();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [search, setSearch] = useState(initialSearch);
@@ -75,6 +76,9 @@ export function AgentConversationSidebar({ agents, existingChatAgentIds, availab
         {visible.map(agent => <Link key={agent.id} to={`/chats/${encodeURIComponent(agent.status === "terminated" ? agent.id : agentRouteRef(agent))}`}
           aria-current={activeId === agent.id ? "page" : undefined}
           title={`${agent.name}${agent.title ? ` · ${agent.title}` : ""}`}
+          onMouseEnter={() => onIntent?.(agent)}
+          onFocus={() => onIntent?.(agent)}
+          onTouchStart={() => onIntent?.(agent)}
           onClick={event => { if (onSelect) { event.preventDefault(); onSelect(agent); } }}
           className={cn("flex min-w-0 items-center gap-3 rounded-md px-2 py-3 text-left transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", activeId === agent.id && "bg-accent text-accent-foreground")}>
           <AgentAvatar agent={agent} size={32} />
