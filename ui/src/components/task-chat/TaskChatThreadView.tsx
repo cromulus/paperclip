@@ -37,6 +37,8 @@ interface TaskChatThreadViewProps {
    * messages instead of staying pinned above the thread.
    */
   header?: ReactNode;
+  /** Explicit controls for deferred older transcript windows. */
+  historyControl?: ReactNode;
   onApprovalDecision?: (statusItemId: string, optionId: string) => void;
   onRuntimeRequestDecision?: (
     item: TaskChatRuntimeRequestItem,
@@ -299,6 +301,7 @@ export function taskChatItemSpacingClass(
 export function TaskChatThreadView({
   items,
   header,
+  historyControl,
   onApprovalDecision,
   onRuntimeRequestDecision,
   renderInteraction,
@@ -419,6 +422,7 @@ export function TaskChatThreadView({
           {header}
         </div>
       ) : null}
+      {historyControl ? <div data-testid="task-chat-history-control">{historyControl}</div> : null}
       {history}
       {tail ? <div data-conversation-typography="" className={streamlined ? "mt-4" : undefined}>{tail}</div> : null}
     </div>

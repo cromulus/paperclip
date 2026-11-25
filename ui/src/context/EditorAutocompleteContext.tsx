@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { buildRoutineMentionHref, buildSkillMentionHref } from "@paperclipai/shared";
 import { companySkillsApi } from "../api/companySkills";
@@ -43,30 +43,37 @@ export type SlashCommandOption = SkillCommandOption | RoutineCommandOption | Act
 
 interface EditorAutocompleteContextValue {
   slashCommands: SlashCommandOption[];
+  ensureSlashCommandsLoaded: () => void;
 }
 
 const EditorAutocompleteContext = createContext<EditorAutocompleteContextValue>({
   slashCommands: [],
+  ensureSlashCommandsLoaded: () => {},
 });
 
 export function EditorAutocompleteProvider({ children }: { children: ReactNode }) {
   const { selectedCompanyId } = useCompany();
+  const [requestedCompanyId, setRequestedCompanyId] = useState<string | null>(null);
+  const ensureSlashCommandsLoaded = useCallback(() => {
+    if (selectedCompanyId) setRequestedCompanyId(selectedCompanyId);
+  }, [selectedCompanyId]);
   const { data: companySkills = [] } = useQuery({
     queryKey: selectedCompanyId
       ? queryKeys.companySkills.list(selectedCompanyId)
       : ["company-skills", "__none__"],
     queryFn: () => companySkillsApi.list(selectedCompanyId!),
-    enabled: Boolean(selectedCompanyId),
+    enabled: Boolean(selectedCompanyId && requestedCompanyId === selectedCompanyId),
   });
   const { data: routines = [] } = useQuery({
     queryKey: selectedCompanyId
       ? queryKeys.routines.list(selectedCompanyId)
       : ["routines", "__none__", "__all-projects__"],
     queryFn: () => routinesApi.list(selectedCompanyId!),
-    enabled: Boolean(selectedCompanyId),
+    enabled: Boolean(selectedCompanyId && requestedCompanyId === selectedCompanyId),
   });
 
   const value = useMemo<EditorAutocompleteContextValue>(() => ({
+    ensureSlashCommandsLoaded,
     slashCommands: [
       ...companySkills.map((skill) => ({
         id: `skill:${skill.id}`,
@@ -92,7 +99,7 @@ export function EditorAutocompleteProvider({ children }: { children: ReactNode }
           aliases: [`routine:${routine.title}`, routine.title, routine.id],
         })),
     ],
-  }), [companySkills, routines]);
+  }), [companySkills, routines, ensureSlashCommandsLoaded]);
 
   return (
     <EditorAutocompleteContext.Provider value={value}>

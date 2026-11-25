@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
@@ -9,7 +9,7 @@ import { TRANSCRIPT_REQUEST_TIMEOUT_MS } from "./read-transcript-request";
 
 const { useQueryMock, logMock, buildTranscriptMock } = vi.hoisted(() => ({
   useQueryMock: vi.fn(() => ({ data: { censorUsernameInLogs: false } })),
-  logMock: vi.fn(async () => ({ runId: "run-1", store: "memory", logRef: "log-1", content: "", nextOffset: 0 })),
+  logMock: vi.fn(async (..._args: unknown[]) => ({ runId: "run-1", store: "memory", logRef: "log-1", content: "", nextOffset: 0 })),
   buildTranscriptMock: vi.fn((chunks: unknown[]) => chunks),
 }));
 
@@ -237,6 +237,47 @@ describe("useLiveRunTranscripts", () => {
       root.unmount();
     });
     container.remove();
+  });
+
+  it("does not reread settled runs when an older transcript batch is added", async () => {
+    logMock.mockImplementation(async (...args: unknown[]) => ({
+      runId: String(args[0]),
+      store: "memory",
+      logRef: `log-${String(args[0])}`,
+      content: "",
+      nextOffset: 0,
+    }));
+    let setRuns: ((runs: Array<{ id: string; status: string; adapterType: string }>) => void) | null = null;
+
+    function Harness() {
+      const [runs, updateRuns] = useState([{ id: "newest", status: "succeeded", adapterType: "codex_local" }]);
+      setRuns = updateRuns;
+      useLiveRunTranscripts({ companyId: "company-1", runs, enableRealtimeUpdates: false });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(<Harness />);
+        await Promise.resolve();
+      });
+      expect(logMock.mock.calls.map(([runId]) => runId)).toEqual(["newest"]);
+
+      await act(async () => {
+        setRuns?.([
+          { id: "newest", status: "succeeded", adapterType: "codex_local" },
+          { id: "older", status: "succeeded", adapterType: "codex_local" },
+        ]);
+        await Promise.resolve();
+      });
+      expect(logMock.mock.calls.map(([runId]) => runId)).toEqual(["newest", "older"]);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
   });
 
   it("releases stalled log hydration and permits a fresh retry without accepting late data", async () => {

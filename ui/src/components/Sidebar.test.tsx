@@ -480,6 +480,20 @@ describe("Sidebar", () => {
     });
   });
 
+  it("defers the Decisions badge request until the page has started", async () => {
+    mockInstanceSettingsApi.getExperimental.mockResolvedValue({ enableDecisions: true });
+    const root = await renderSidebar();
+
+    expect(mockAttentionApi.list).not.toHaveBeenCalled();
+    await new Promise((resolve) => window.setTimeout(resolve, 550));
+    await flushReact();
+    expect(mockAttentionApi.list).toHaveBeenCalledWith("company-1");
+
+    flushSync(() => {
+      root.unmount();
+    });
+  });
+
   it("shows Status directly below Decisions in primary navigation", async () => {
     mockInstanceSettingsApi.getExperimental.mockResolvedValue({
       enableDecisions: true,

@@ -23,7 +23,7 @@ import {
   LayoutGrid,
   Users,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { SidebarSection } from "./SidebarSection";
 import { SidebarNavItem } from "./SidebarNavItem";
@@ -106,10 +106,22 @@ export function Sidebar({ children }: { children?: ReactNode }) {
   // item is hidden entirely until the flag is enabled (same no-flash pattern as
   // showWorkspacesLink — it defaults hidden, so no placeholder is needed).
   const showDecisions = experimentalSettings?.enableDecisions === true;
+  const [attentionBadgeReadyCompanyId, setAttentionBadgeReadyCompanyId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!selectedCompanyId || !showDecisions) {
+      setAttentionBadgeReadyCompanyId(null);
+      return;
+    }
+    setAttentionBadgeReadyCompanyId(null);
+    // The badge is helpful but not part of the active page. Let the route's
+    // primary requests start before this full attention aggregation runs.
+    const timer = window.setTimeout(() => setAttentionBadgeReadyCompanyId(selectedCompanyId), 500);
+    return () => window.clearTimeout(timer);
+  }, [selectedCompanyId, showDecisions]);
   const { data: attentionFeed } = useQuery({
     queryKey: queryKeys.attention(selectedCompanyId!),
     queryFn: () => attentionApi.list(selectedCompanyId!),
-    enabled: !!selectedCompanyId && showDecisions,
+    enabled: !!selectedCompanyId && showDecisions && attentionBadgeReadyCompanyId === selectedCompanyId,
     refetchInterval: 60_000,
   });
   const attentionCount = attentionBadgeCount(attentionFeed);

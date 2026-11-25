@@ -252,6 +252,8 @@ function isRunnerResponseComment(params: {
 // well within this as soon as the settled turn/comment lands.
 const SETTLING_TAIL_MAX_MS = 15_000;
 const INITIAL_HISTORY_REVEAL_TIMEOUT_MS = 15_000;
+const INITIAL_LEGACY_TRANSCRIPT_RUN_COUNT = 5;
+const LEGACY_TRANSCRIPT_PAGE_SIZE = 5;
 const EMPTY_LIVE_ISSUE_IDS: ReadonlySet<string> = new Set<string>();
 const LONG_THREAD_BLOCKER_REPEAT_COUNT = 4;
 
@@ -929,6 +931,43 @@ export function TaskChatThread(props: TaskChatThreadProps) {
     return [...map.values()];
   }, [linkedRuns, liveRuns, activeRun]);
 
+  const terminalLegacyRunsNewestFirst = useMemo(
+    () => runs
+      .filter((run) => run.runtimeMode !== "native" && isTerminalRunStatus(run.status))
+      .sort((left, right) => {
+        const leftMeta = linkedRunMetaById.get(left.id);
+        const rightMeta = linkedRunMetaById.get(right.id);
+        return toMs(rightMeta?.finishedAt ?? rightMeta?.startedAt ?? rightMeta?.createdAt) -
+          toMs(leftMeta?.finishedAt ?? leftMeta?.startedAt ?? leftMeta?.createdAt);
+      }),
+    [runs, linkedRunMetaById],
+  );
+  const [legacyTranscriptPageState, setLegacyTranscriptPageState] = useState({
+    issueId,
+    pages: 0,
+  });
+  const requestedLegacyTranscriptPages = legacyTranscriptPageState.issueId === issueId
+    ? legacyTranscriptPageState.pages
+    : 0;
+  const initialLegacyTranscriptRunIds = useMemo(
+    () => new Set(terminalLegacyRunsNewestFirst.slice(0, INITIAL_LEGACY_TRANSCRIPT_RUN_COUNT).map((run) => run.id)),
+    [terminalLegacyRunsNewestFirst],
+  );
+  const loadedOlderLegacyRuns = terminalLegacyRunsNewestFirst.slice(
+    INITIAL_LEGACY_TRANSCRIPT_RUN_COUNT,
+    INITIAL_LEGACY_TRANSCRIPT_RUN_COUNT + requestedLegacyTranscriptPages * LEGACY_TRANSCRIPT_PAGE_SIZE,
+  );
+  const selectedLegacyTranscriptRunIds = useMemo(
+    () => new Set([
+      ...initialLegacyTranscriptRunIds,
+      ...loadedOlderLegacyRuns.map((run) => run.id),
+    ]),
+    [initialLegacyTranscriptRunIds, loadedOlderLegacyRuns],
+  );
+  const deferredLegacyRunCount = Math.max(
+    0,
+    terminalLegacyRunsNewestFirst.length - selectedLegacyTranscriptRunIds.size,
+  );
   const nativeRuns = useMemo(
     () => runs.filter((run) => run.runtimeMode === "native"),
     [runs],
@@ -942,14 +981,21 @@ export function TaskChatThread(props: TaskChatThreadProps) {
     retry: retryNativeEvents,
   } = useNativeRunTranscripts(nativeRuns);
   const logRuns = useMemo(() => runs.filter((run) =>
-    run.runtimeMode !== "native" ||
-    // Active runs still need the websocket log stream. Only settled native
-    // history can skip the legacy transport when event history is available.
-    run.status === "running" || run.status === "queued" ||
-    nativeTranscriptErrorsByRun.has(run.id) ||
-    (hydratedNativeRunIds?.has(run.id) &&
-      (nativeTranscriptByRun.get(run.id)?.length ?? 0) === 0)
-  ), [runs, nativeTranscriptErrorsByRun, hydratedNativeRunIds, nativeTranscriptByRun]);
+    run.runtimeMode === "native"
+      ? (
+          // Active native runs still need the websocket log stream. Settled
+          // native history skips legacy logs unless the event transport failed
+          // or returned no transcript.
+          run.status === "running" || run.status === "queued" ||
+          nativeTranscriptErrorsByRun.has(run.id) ||
+          (hydratedNativeRunIds?.has(run.id) &&
+            (nativeTranscriptByRun.get(run.id)?.length ?? 0) === 0)
+        )
+      : (
+          run.status === "running" || run.status === "queued" ||
+          selectedLegacyTranscriptRunIds.has(run.id)
+        )
+  ), [runs, selectedLegacyTranscriptRunIds, nativeTranscriptErrorsByRun, hydratedNativeRunIds, nativeTranscriptByRun]);
   const {
     transcriptByRun: logTranscriptByRun,
     isInitialHydrating: logsAreInitiallyHydrating,
@@ -957,6 +1003,9 @@ export function TaskChatThread(props: TaskChatThreadProps) {
     errorsByRun: logErrorsByRun,
     retry: retryLogs,
   } = useLiveRunTranscripts({ runs: logRuns, companyId });
+  const olderTranscriptBatchLoading = loadedOlderLegacyRuns.some(
+    (run) => !hydratedLogRunIds?.has(run.id),
+  );
   const fallbackByRunRef = useRef(
     new Map<string, NonNullable<ReturnType<typeof logTranscriptByRun.get>>>(),
   );
@@ -2948,7 +2997,18 @@ export function TaskChatThread(props: TaskChatThreadProps) {
         initialCommentWindow.current.oldestAt
     );
   });
+  const initialTranscriptRunIds = new Set(
+    initialRuns
+      .filter((run) =>
+        run.runtimeMode === "native" ||
+        run.status === "running" ||
+        run.status === "queued" ||
+        initialLegacyTranscriptRunIds.has(run.id),
+      )
+      .map((run) => run.id),
+  );
   const transcriptHistoryPending = initialRuns.some((run) => {
+    if (!initialTranscriptRunIds.has(run.id)) return false;
     // A scheduled retry has not started and has no log to hydrate yet.
     if (run.status === "scheduled_retry") return false;
     if (
@@ -2993,6 +3053,22 @@ export function TaskChatThread(props: TaskChatThreadProps) {
   const [expiredHistoryWait, setExpiredHistoryWait] = useState<{ historyKey: typeof historyKey } | null>(null);
   const historyWaitExpired = expiredHistoryWait !== null && expiredHistoryWait.historyKey === historyKey;
   const prepareInitialContent = Boolean(scrollNavigation.hash) || !historyPending || historyRevealed || historyWaitExpired;
+  const historyControl = deferredLegacyRunCount > 0 ? (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      disabled={olderTranscriptBatchLoading}
+      onClick={() => setLegacyTranscriptPageState({
+        issueId,
+        pages: requestedLegacyTranscriptPages + 1,
+      })}
+    >
+      {olderTranscriptBatchLoading
+        ? "Loading earlier run activity…"
+        : `Load earlier run activity (${deferredLegacyRunCount} remaining)`}
+    </Button>
+  ) : null;
   // Supporting requests can stall without rejecting. Bound the first reveal
   // independently of their pending states so saved conversation and the
   // composer stay accessible, with an explicit incomplete-history notice.
@@ -3088,7 +3164,7 @@ export function TaskChatThread(props: TaskChatThreadProps) {
               >
                 {prepareInitialContent ? (
                   <>
-                    {items.length === 0 && !tailRunId && !optimisticRunnerStartup ? (
+                    {items.length === 0 && !tailRunId && !optimisticRunnerStartup && !historyControl ? (
                       <div
                         className={
                           isMobile ? undefined : "min-h-0 flex-1 overflow-y-auto"
@@ -3123,6 +3199,7 @@ export function TaskChatThread(props: TaskChatThreadProps) {
                     ) : (
                       <TaskChatThreadView
                         items={items}
+                        historyControl={historyControl}
                         attachments={attachments}
                         header={threadHeaderWithBlockers}
                         renderInteraction={renderInteraction}

@@ -745,7 +745,10 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
   readOnly = false,
 }: MarkdownEditorProps, forwardedRef) {
   const editorValue = useMemo(() => prepareMarkdownForEditor(value), [value]);
-  const { slashCommands: sharedSlashCommands } = useEditorAutocomplete();
+  const {
+    slashCommands: sharedSlashCommands,
+    ensureSlashCommandsLoaded,
+  } = useEditorAutocomplete();
   const slashCommands = useMemo(
     () => [...actionCommands, ...sharedSlashCommands],
     [actionCommands, sharedSlashCommands],
@@ -1366,6 +1369,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
           value={value}
           placeholder={placeholder}
           readOnly={readOnly}
+          onFocus={ensureSlashCommandsLoaded}
           onChange={(event) => {
             if (readOnly) return;
             onChange(event.target.value);
@@ -1390,6 +1394,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
   return (
     <div
       ref={containerRef}
+      onFocusCapture={(event) => {
+        if ((event.target as HTMLElement).isContentEditable) ensureSlashCommandsLoaded?.();
+      }}
       className={cn(
         "relative paperclip-mdxeditor-scope",
         bordered ? "rounded-md border border-border bg-transparent" : "bg-transparent",

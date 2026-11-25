@@ -131,8 +131,10 @@ export function useLiveRunTranscripts({
   const [hydratedRunIds, setHydratedRunIds] = useState<Set<string>>(new Set());
   const [errorsByRun, setErrorsByRun] = useState<ReadonlyMap<string, Error>>(new Map());
   const [retryGeneration, setRetryGeneration] = useState(0);
+  const hydratedTerminalStatusByRunRef = useRef(new Map<string, string>());
   const retry = useCallback(() => {
     missingTerminalLogRunIdsRef.current.clear();
+    hydratedTerminalStatusByRunRef.current.clear();
     setRetryGeneration((value) => value + 1);
   }, []);
   const seenChunkKeysRef = useRef(new Set<string>());
@@ -280,6 +282,11 @@ export function useLiveRunTranscripts({
         missingTerminalLogRunIdsRef.current.delete(runId);
       }
     }
+    for (const runId of hydratedTerminalStatusByRunRef.current.keys()) {
+      if (!retainedRunIds.has(runId)) {
+        hydratedTerminalStatusByRunRef.current.delete(runId);
+      }
+    }
     for (const runId of transcriptCacheRef.current.keys()) {
       if (!retainedRunIds.has(runId)) {
         transcriptCacheRef.current.delete(runId);
@@ -307,6 +314,8 @@ export function useLiveRunTranscripts({
     const inFlightRunIds = new Set<string>();
 
     const readRunLog = async (run: RunTranscriptSource) => {
+      if (isTerminalStatus(run.status) &&
+        hydratedTerminalStatusByRunRef.current.get(run.id) === run.status) return;
       if (missingTerminalLogRunIdsRef.current.has(run.id) || inFlightRunIds.has(run.id)) {
         return;
       }
@@ -356,6 +365,9 @@ export function useLiveRunTranscripts({
       } finally {
         inFlightRunIds.delete(run.id);
         if (!cancelled) {
+          if (isTerminalStatus(run.status)) {
+            hydratedTerminalStatusByRunRef.current.set(run.id, run.status);
+          }
           setHydratedRunIds((prev) => {
             if (prev.has(run.id)) return prev;
             const next = new Set(prev);

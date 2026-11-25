@@ -990,6 +990,53 @@ describe("TaskChatThread draft pass-through", () => {
 });
 
 describe("TaskChatThread runtime transcript selection", () => {
+  it("loads a bounded legacy transcript window first and requests older history in batches without hiding comments", () => {
+    const linkedRuns = Array.from({ length: 12 }, (_, index) => ({
+      runId: `legacy-${index}`,
+      runtimeMode: "legacy" as const,
+      status: "succeeded",
+      agentId: "agent-1",
+      adapterType: "claude_local",
+      createdAt: new Date(Date.UTC(2026, 7, 25, 18, index)).toISOString(),
+      startedAt: new Date(Date.UTC(2026, 7, 25, 18, index)).toISOString(),
+      finishedAt: new Date(Date.UTC(2026, 7, 25, 18, index, 30)).toISOString(),
+    }));
+    const reply = {
+      id: "saved-reply",
+      body: "Saved conversation reply remains visible.",
+      runId: "legacy-0",
+      companyId: "company-1",
+      issueId: "issue-1",
+      authorType: "agent" as const,
+      authorAgentId: "agent-1",
+      authorUserId: null,
+      presentation: null,
+      metadata: null,
+      createdAt: new Date("2026-08-25T18:00:30.000Z"),
+      updatedAt: new Date("2026-08-25T18:00:30.000Z"),
+    };
+    const props = { issueId: "legacy-history-window", comments: [reply], linkedRuns, onAdd: async () => {} };
+
+    render(<TaskChatThread {...props} />);
+    expect(transcriptHookRuns.legacy.at(-1)).toHaveLength(5);
+    expect(container.textContent).toContain("Saved conversation reply remains visible.");
+
+    const loadButton = () => container.querySelector<HTMLButtonElement>(
+      '[data-testid="task-chat-history-control"] button',
+    );
+    expect(loadButton()?.textContent).toContain("7 remaining");
+    flushSync(() => loadButton()!.click());
+    expect(transcriptHookRuns.legacy.at(-1)).toHaveLength(10);
+
+    transcriptState.hydratedRunIds = new Set(linkedRuns.slice(2).map((run) => run.runId));
+    render(<TaskChatThread {...props} />);
+    expect(loadButton()?.textContent).toContain("2 remaining");
+    flushSync(() => loadButton()!.click());
+    expect(transcriptHookRuns.legacy.at(-1)).toHaveLength(12);
+    expect(loadButton()).toBeNull();
+    expect(container.textContent).toContain("Saved conversation reply remains visible.");
+  });
+
   it.each(["queued", "running"])("retains the live log transport for a %s native run with event history", (status) => {
     nativeTranscriptState.hydratedRunIds = new Set(["native-run"]);
     nativeTranscriptState.transcriptByRun.set("native-run", [
@@ -1070,7 +1117,7 @@ describe("TaskChatThread runtime transcript selection", () => {
     }>;
     expect(legacyRuns.map((run) => run.id)).toEqual([
       "native-run",
-      ...DIRECT_ADAPTER_TYPES.map((_, index) => `legacy-run-${index}`),
+      ...DIRECT_ADAPTER_TYPES.slice(1).map((_, index) => `legacy-run-${index + 1}`),
     ]);
     expect(nativeRuns.map((run) => run.id)).toEqual(["native-run"]);
   });
