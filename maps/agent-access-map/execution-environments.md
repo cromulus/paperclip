@@ -40,7 +40,7 @@ environment overrides and heartbeat dispatch all reject a different agent.
 Evidence: `source-only` — [implementation](../../server/src/routes/environments.ts#L353)
 at the reviewed commit above.
 
-Verification: `source-only` — ownership checks are covered by the focused
+Verification: `not-run` — ownership checks are covered by the focused
 environment-selection tests and heartbeat selection regression. No live agent SSH
 run has been qualified.
 
@@ -89,7 +89,7 @@ an unbound environment keeps existing shared selection behavior.
 Evidence: `source-only` — [implementation](../../server/src/routes/environments.ts#L353)
 at the reviewed commit above.
 
-Verification: `source-only` — focused API and heartbeat tests verify an owned target
+Verification: `not-run` — focused API and heartbeat tests verify an owned target
 rejects a non-owner and a shared target remains selectable. No live remote command
 has run under the Systems Operations agent yet.
 

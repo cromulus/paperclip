@@ -252,6 +252,7 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
 
 function makeEnvironment(overrides: Partial<Environment>): Environment {
   return {
+    ownerAgentId: null,
     id: "env-1",
     name: "Local",
     description: null,

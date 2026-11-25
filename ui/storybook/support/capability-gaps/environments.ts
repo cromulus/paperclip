@@ -1,6 +1,7 @@
 import type { Environment, EnvironmentCapabilities } from "@paperclipai/shared";
 import { prepareFixtureApi, type FixtureState } from "./api";
 export const environment: Environment = {
+  ownerAgentId: null,
   id: "environment-gap",
   name: "Release sandbox",
   description: "Isolated release checks",
