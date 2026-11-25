@@ -32,7 +32,7 @@ echo "owner_agent_insert_bundle=present"
 # Check both sides of the owner boundary in the emitted server build, plus the
 # specific routine-execution collision recovery path. This catches overlays
 # that contain the bundled route but stale package/server artifacts.
-ssh dokploy "sudo -n docker run --rm --cpus 1 --memory 1g --network none --read-only --tmpfs /tmp:rw,nosuid,nodev --entrypoint sh '$image' -lc 'grep -F -q \"testEnvironmentId, adapterType, agentId\" /app/server/dist/routes/agents.js && grep -F -q \"environmentId, agent.adapterType, agent.id\" /app/server/dist/services/agent-harness-verification.js && grep -F -q \"ownerAgentId !== agent.id\" /app/server/dist/services/heartbeat/environment-selection.js && grep -R -F -q --include=\"*.mjs\" \"issues_open_routine_execution_uq\" /app/server/dist-runtime && test -f /app/packages/db/src/migrations/0510_illegal_kate_bishop.sql && test -f /app/server/dist/vendor/paperclip-runner/index.js'"
+ssh dokploy "sudo -n docker run --rm --cpus 1 --memory 1g --network none --read-only --tmpfs /tmp:rw,nosuid,nodev --entrypoint sh '$image' -lc 'grep -F -q \"testEnvironmentId, adapterType, agentId\" /app/server/dist/routes/agents.js && grep -F -q \"environmentId, agent.adapterType, agent.id\" /app/server/dist/services/agent-harness-verification.js && grep -F -q \"ownerAgentId !== agent.id\" /app/server/dist/services/heartbeat/environment-selection.js && grep -R -F -q --include=\"*.mjs\" \"issues_open_routine_execution_uq\" /app/server/dist-runtime && test -f /app/packages/db/src/migrations/0511_eager_toad.sql && test -f /app/server/dist/vendor/paperclip-runner/index.js'"
 echo "owner_guards_queue_recovery_migration_runner=present"
 
 # The remote MCP bridge must be built with the same narrow internal endpoint

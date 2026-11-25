@@ -55,7 +55,7 @@ merely switching the image back.
 
 NMC previously shipped `0375_stiff_meggan.sql`; upstream independently allocated
 0375. Preserve the original database receipt. Its exact SQL is archived under
-`legacy-migrations/`. Generated migration `0510_illegal_kate_bishop.sql` validates
+`legacy-migrations/`. Generated migration `0511_eager_toad.sql` validates
 and preserves the existing nullable UUID owner column and index, or installs them
 on a new database. It creates indexes concurrently and runs outside a transaction.
 It never rewrites the historical receipt or skips upstream's own 0375 migration.
