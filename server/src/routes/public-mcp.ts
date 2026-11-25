@@ -10,6 +10,7 @@ import { DOT_RUNNER_MCP_PATH, DOT_RUNNER_MCP_SCOPES, PUBLIC_MCP_SCOPES, mcpConse
 import { renderMcpSetup, mcpSetupMarkdown } from "../services/public-mcp/setup.js";
 import { DEVICE_GRANT, McpOAuthError, type PublicMcpOAuth } from "../services/public-mcp/oauth.js";
 import { McpApiError, McpCapabilityError, publicMcpCapabilities, type createPublicMcpExecutor } from "../services/public-mcp/capabilities.js";
+import { proxyOwnerMiddleware } from "../middleware/proxy-owner.js";
 
 const oauthErrors: ErrorRequestHandler = (error, _req, res, next) => {
   if (res.headersSent) { next(error); return; }
@@ -197,6 +198,7 @@ export function publicMcpIngressRoutes(oauth: PublicMcpOAuth, execute: ReturnTyp
 
 export function publicMcpManagementRoutes(oauth: PublicMcpOAuth, agentOAuth?: PublicMcpOAuth) {
   const router = Router();
+  router.use(["/mcp", "/dot-mcp"], proxyOwnerMiddleware());
   const requestOAuth = async (id: string, dotOnly = false) => {
     if (agentOAuth && await agentOAuth.ownsRequest(id)) return agentOAuth;
     if (dotOnly) throw new McpOAuthError("invalid_request", "Dot connection request is expired or unavailable.", 404);
