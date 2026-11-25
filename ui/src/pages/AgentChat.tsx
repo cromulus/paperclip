@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Agent } from "@paperclipai/shared";
 import { agentChatsApi } from "@/api/agentChats";
@@ -28,7 +28,10 @@ export function AgentChat() {
     agent.id === agentRef || agentRouteRef(agent) === agentRef,
   );
   const bootstrapAgentRef = cachedAgent?.id ?? agentRef;
-  const bootstrapKey = queryKeys.agentChats.bootstrap(selectedCompanyId, userId, bootstrapAgentRef);
+  const bootstrapKey = useMemo(
+    () => queryKeys.agentChats.bootstrap(selectedCompanyId, userId, bootstrapAgentRef),
+    [selectedCompanyId, userId, bootstrapAgentRef],
+  );
   const bootstrap = useQuery({
     queryKey: bootstrapKey,
     queryFn: () => agentChatsApi.bootstrap(selectedCompanyId!, bootstrapAgentRef),
@@ -62,7 +65,6 @@ export function AgentChat() {
         companyId={selectedCompanyId}
         userId={userId}
         queryKey={bootstrapKey}
-        dataUpdatedAt={bootstrap.dataUpdatedAt}
         isFetching={bootstrap.isFetching}
         refetchBootstrap={() => bootstrap.refetch()}
       />

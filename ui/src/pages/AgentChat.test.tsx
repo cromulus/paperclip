@@ -4,10 +4,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentChatBootstrapResponse } from "@paperclipai/shared";
+import { agentChatsApi } from "@/api/agentChats";
 import { queryKeys } from "@/lib/queryKeys";
 import { AgentChat } from "./AgentChat";
+import { shouldRefreshAgentChatForLiveEvent } from "./AgentChatFastPath";
 
-const state = vi.hoisted(() => ({ agentRef: "cos", companyId: "company-a", userId: "user-a" }));
+const state = vi.hoisted(() => ({ agentRef: "cos", companyId: "company-a", userId: "user-a", liveHandler: null as ((event: import("@paperclipai/shared").LiveEvent) => void) | null }));
 
 vi.mock("@/lib/router", () => ({
   useParams: () => ({ agentRef: state.agentRef }),
@@ -16,10 +18,12 @@ vi.mock("@/lib/router", () => ({
 vi.mock("@/context/CompanyContext", () => ({ useCompany: () => ({ selectedCompanyId: state.companyId }) }));
 vi.mock("@/hooks/useAgentChatEnabled", () => ({ useAgentChatEnabled: () => ({ enabled: true, loaded: true }) }));
 vi.mock("@/api/auth", () => ({ authApi: { getSession: async () => ({ user: { id: state.userId } }) } }));
+vi.mock("@/api/agentChats", () => ({ agentChatsApi: { list: vi.fn(), get: vi.fn(), ensure: vi.fn(), bootstrap: vi.fn() } }));
+vi.mock("@/context/LiveUpdatesProvider", () => ({ useCompanyLiveEvent: (handler: typeof state.liveHandler) => { state.liveHandler = handler; } }));
 vi.mock("@/components/AgentAvatar", () => ({ AgentAvatar: () => null }));
 vi.mock("@/components/task-chat/TaskChatThreadView", () => ({
-  TaskChatThreadView: ({ items }: { items: Array<{ kind: string; text?: string }> }) => (
-    <div data-testid="thread">{items.map((item, index) => item.kind === "message" ? <p key={index}>{item.text}</p> : null)}</div>
+  TaskChatThreadView: ({ items, historyControl }: { items: Array<{ kind: string; text?: string }>; historyControl?: React.ReactNode }) => (
+    <div data-testid="thread">{historyControl}{items.map((item, index) => item.kind === "message" ? <p key={index}>{item.text}</p> : null)}</div>
   ),
 }));
 vi.mock("@/components/transcript/useLiveRunTranscripts", () => ({ useLiveRunTranscripts: () => ({ transcriptByRun: new Map() }) }));
@@ -55,7 +59,9 @@ beforeEach(() => {
   state.agentRef = "cos";
   state.companyId = "company-a";
   state.userId = "user-a";
+  state.liveHandler = null;
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  vi.mocked(agentChatsApi.bootstrap).mockImplementation(() => new Promise(() => {}));
   client.setQueryData(queryKeys.auth.session, { user: { id: "user-a" } });
   client.setQueryData(queryKeys.agentChats.bootstrap("company-a", "user-a", "cos"), bootstrap("cos", "CoS cached note"));
   client.setQueryData(queryKeys.agentChats.bootstrap("company-a", "user-a", "finance"), bootstrap("finance", "Finance cached note"));
@@ -72,6 +78,45 @@ afterEach(async () => {
 });
 
 describe("lightweight Agent Chat route", () => {
+  it("refreshes the bootstrap for new comments and run lifecycle, scoped to this chat", () => {
+    const event = (type: string, payload: Record<string, unknown>) => ({
+      id: 1, companyId: "company-a", type, createdAt: "2026-11-24T12:00:00Z", payload,
+    }) as import("@paperclipai/shared").LiveEvent;
+    expect(shouldRefreshAgentChatForLiveEvent(event("activity.logged", {
+      entityType: "issue", entityId: "chat-cos", action: "issue.comment_added",
+    }), "chat-cos")).toBe(true);
+    expect(shouldRefreshAgentChatForLiveEvent(event("heartbeat.run.queued", { issueId: "chat-cos" }), "chat-cos")).toBe(true);
+    expect(shouldRefreshAgentChatForLiveEvent(event("heartbeat.run.status", { issueId: "other-chat" }), "chat-cos")).toBe(false);
+    expect(shouldRefreshAgentChatForLiveEvent(event("heartbeat.run.log", { issueId: "chat-cos" }), "chat-cos")).toBe(false);
+    expect(shouldRefreshAgentChatForLiveEvent(event("activity.logged", {
+      entityType: "issue", entityId: "other-chat", action: "issue.comment_added",
+    }), "chat-cos")).toBe(false);
+    expect(shouldRefreshAgentChatForLiveEvent(event("activity.logged", {
+      entityType: "issue", entityId: "chat-cos", action: "issue.comment_added",
+    }), null)).toBe(false);
+  });
+
+  it("invalidates only the current conversation bootstrap on a matching live comment", async () => {
+    await render();
+    const key = queryKeys.agentChats.bootstrap("company-a", "user-a", "cos");
+    await act(async () => {
+      state.liveHandler?.({ id: 2, companyId: "company-a", type: "activity.logged", createdAt: "2026-11-24T12:00:00Z", payload: {
+        entityType: "issue", entityId: "chat-cos", action: "issue.comment_added",
+      } });
+      await Promise.resolve();
+    });
+    expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+    expect(client.getQueryState(queryKeys.agentChats.bootstrap("company-a", "user-a", "finance"))?.isInvalidated).toBe(false);
+  });
+
+  it("hides the older-history control when a previous page exhausted its cursor", async () => {
+    const noOlder = bootstrap("cos", "CoS cached note");
+    noOlder.page.olderCursor = "last-item-but-no-older-page";
+    client.setQueryData(queryKeys.agentChats.bootstrap("company-a", "user-a", "cos"), noOlder);
+    await render();
+    expect(container.textContent).not.toContain("Load earlier messages");
+  });
+
   it("paints the warm target conversation immediately and switches without carrying prior-agent text", async () => {
     await render();
     expect(container.querySelector('[data-testid="agent-chat-title"]')?.textContent).toBe("Chief of Staff");

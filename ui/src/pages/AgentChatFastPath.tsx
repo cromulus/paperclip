@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, ArrowUp, LoaderCircle, Paperclip } from "lucide-react";
 import type { Agent, Issue, IssueComment } from "@paperclipai/shared";
+import type { LiveEvent } from "@paperclipai/shared";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { TaskChatThreadView } from "@/components/task-chat/TaskChatThreadView";
 import { commentsToTaskChatItems } from "@/components/task-chat/task-chat-adapter";
@@ -18,18 +19,35 @@ import { clearDraftSubmission, loadDraft, loadDraftSubmission, saveDraft, saveDr
 import { createIssueDetailPath } from "@/lib/issueDetailBreadcrumb";
 import { Link } from "@/lib/router";
 import { queryKeys } from "@/lib/queryKeys";
+import { useCompanyLiveEvent } from "@/context/LiveUpdatesProvider";
 
 interface AgentChatFastPathProps {
   bootstrap: AgentChatBootstrap;
   companyId: string;
   userId: string;
   queryKey: readonly unknown[];
-  dataUpdatedAt: number;
   isFetching: boolean;
   refetchBootstrap: () => Promise<unknown>;
 }
 
-export function AgentChatFastPath({ bootstrap, companyId, userId, queryKey, dataUpdatedAt, isFetching, refetchBootstrap }: AgentChatFastPathProps) {
+export function shouldRefreshAgentChatForLiveEvent(event: LiveEvent, chatId: string | null): boolean {
+  if (!chatId) return false;
+  const payload = event.payload;
+  if (event.type === "activity.logged") {
+    return payload.entityType === "issue" && payload.entityId === chatId && (
+      payload.action === "issue.comment_added" ||
+      payload.action === "issue.conversation_session_started" ||
+      payload.action === "issue.updated" ||
+      payload.action === "issue.tree_hold_created" ||
+      payload.action === "issue.tree_hold_released"
+    );
+  }
+  return (
+    event.type === "heartbeat.run.queued" || event.type === "heartbeat.run.status"
+  ) && payload.issueId === chatId;
+}
+
+export function AgentChatFastPath({ bootstrap, companyId, userId, queryKey, isFetching, refetchBootstrap }: AgentChatFastPathProps) {
   const queryClient = useQueryClient();
   const agent = bootstrap.agent;
   const chat = bootstrap.chat;
@@ -38,6 +56,7 @@ export function AgentChatFastPath({ bootstrap, companyId, userId, queryKey, data
   const [submitting, setSubmitting] = useState(false);
   const [olderPages, setOlderPages] = useState<IssueComment[][]>([]);
   const [olderCursor, setOlderCursor] = useState(bootstrap.page.olderCursor);
+  const [canLoadOlder, setCanLoadOlder] = useState(bootstrap.page.hasOlder);
   const [olderLoading, setOlderLoading] = useState(false);
   const [olderError, setOlderError] = useState<string | null>(null);
   const [draftAttempt, setDraftAttempt] = useState(() => loadDraftSubmission(draftKey));
@@ -45,6 +64,11 @@ export function AgentChatFastPath({ bootstrap, companyId, userId, queryKey, data
   const [optimisticComment, setOptimisticComment] = useState<IssueComment | null>(null);
   const submitLock = useRef(false);
   const ensureChatPromise = useRef<Promise<Issue> | null>(null);
+
+  useCompanyLiveEvent(useCallback((event) => {
+    if (!shouldRefreshAgentChatForLiveEvent(event, chat?.id ?? null)) return;
+    void queryClient.invalidateQueries({ queryKey });
+  }, [chat?.id, queryClient, queryKey]));
 
   const activeRun = bootstrap.activeRun;
   const legacyRuns = useMemo(() => activeRun && activeRun.runtimeMode !== "native" ? [{
@@ -230,7 +254,8 @@ export function AgentChatFastPath({ bootstrap, companyId, userId, queryKey, data
     try {
       const page = await agentChatsApi.bootstrap(companyId, agent.id, { limit: bootstrap.page.limit, before: olderCursor });
       setOlderPages(previous => [...previous, page.messages]);
-      setOlderCursor(page.page.olderCursor);
+      setCanLoadOlder(page.page.hasOlder);
+      setOlderCursor(page.page.hasOlder ? page.page.olderCursor : null);
     } catch (error) {
       setOlderError(error instanceof Error ? error.message : "Couldn’t load earlier messages.");
     } finally {
@@ -248,7 +273,7 @@ export function AgentChatFastPath({ bootstrap, companyId, userId, queryKey, data
       {chat ? <Button asChild size="sm" variant="outline"><Link to={createIssueDetailPath(chat.id)}>Details</Link></Button> : null}
     </div>
   );
-  const historyControl = bootstrap.page.hasOlder ? (
+  const historyControl = canLoadOlder && olderCursor ? (
     <div className="flex flex-col items-center gap-1">
       {olderError ? <p role="alert" className="text-xs text-destructive">{olderError}</p> : null}
       <Button type="button" size="sm" variant="outline" disabled={olderLoading} onClick={() => void loadEarlier()}>
@@ -256,14 +281,13 @@ export function AgentChatFastPath({ bootstrap, companyId, userId, queryKey, data
       </Button>
     </div>
   ) : null;
-  const guardFresh = Date.now() - dataUpdatedAt <= 30_000;
   const canReset = body.trim() === "/new" && bootstrap.sendGuard.resetAllowed;
-  const canSend = (bootstrap.sendGuard.enabled || canReset) && bootstrap.sendGuard.pendingInteractionCount === 0 && guardFresh && !draftAttempt;
+  const canSend = (bootstrap.sendGuard.enabled || canReset) && bootstrap.sendGuard.pendingInteractionCount === 0 && !draftAttempt;
   const statusMessage = bootstrap.sendGuard.pendingInteractionCount > 0
     ? "Respond to the open request in Details before sending another message."
     : !bootstrap.sendGuard.enabled && !canReset
       ? bootstrap.sendGuard.disabledReason ?? "This conversation is temporarily unable to accept a message."
-      : !guardFresh || isFetching ? "Checking whether this conversation can accept a message…"
+      : isFetching ? "Refreshing conversation status…"
       : null;
 
   return (
