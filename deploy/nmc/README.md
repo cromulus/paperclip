@@ -14,6 +14,11 @@ agent-owned execution environments, routine claim contention, and remote MCP
 callback routing. Upstream now supplies the chat/sidebar loading improvements.
 Runtime secrets and deployment policy values remain in Dokploy.
 
+On a shared host, bound the BuildKit container to four actual CPUs with
+`docker update --cpuset-cpus 0-3 <builder-container>` (adjust to its allowed CPU
+set). A CPU quota alone leaves all host CPUs visible to pnpm, which starts too
+many dependency workers and can exceed a 6 GiB build memory limit.
+
 Build from a clean committed checkout with directories at 0755 and regular
 files at 0644 (executable files at 0755). When exporting with `git archive`,
 extract with umask 022 or remove group/other write bits before building. The

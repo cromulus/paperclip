@@ -1659,7 +1659,8 @@ describe.skipIf(!support.supported)("heartbeat queue database wiring", () => {
     deps.isRunAdmissionClosed = admission;
     const pass = createHeartbeatQueue(db, deps).startNextQueuedRunForAgent(agent.id);
     try {
-      await vi.waitFor(() => expect(budgetChecks).toBe(2));
+      // A dedicated external test database can add network latency to each claim.
+      await vi.waitFor(() => expect(budgetChecks).toBe(2), { timeout: external ? 10_000 : 1_000 });
       // The first run is executing while the second claim is still in progress.
       expect(deps.executeRun).toHaveBeenCalledExactlyOnceWith(queued[0]!.id);
     } finally { releaseSecondClaim(); }
