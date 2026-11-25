@@ -446,6 +446,13 @@ describe("Paperclip MCP callback routing", () => {
     expect(routePaperclipMcpServersThroughCallbackBridge(servers, null)).toEqual(servers);
   });
 
+  it("preserves controller-local MCP endpoints for a local execution target", () => {
+    const servers: NonNullable<AcpRuntimeOptions["mcpServers"]> = [
+      { type: "http", name: "Paperclip runtime", url: "http://127.0.0.1:3100/mcp/runtime-tools", headers: [{ name: "Authorization", value: "Bearer host-token" }] },
+    ];
+    expect(routePaperclipMcpServersThroughCallbackBridge(servers, null, false)).toBe(servers);
+  });
+
   it("fails closed instead of sending a controller credential to a remote target without a bridge", () => {
     const servers: NonNullable<AcpRuntimeOptions["mcpServers"]> = [
       { type: "http", name: "Paperclip runtime", url: "http://127.0.0.1:3100/mcp/runtime-tools", headers: [{ name: "Authorization", value: "Bearer host-token" }] },

@@ -287,7 +287,9 @@ interface AcpxEngineSettings {
 export function routePaperclipMcpServersThroughCallbackBridge(
   servers: NonNullable<AcpRuntimeOptions["mcpServers"]>,
   bridge: AdapterExecutionTargetPaperclipBridgeHandle | null | undefined,
+  executionTargetIsRemote = true,
 ): NonNullable<AcpRuntimeOptions["mcpServers"]> {
+  if (!executionTargetIsRemote) return servers;
   const bridgeUrl = bridge?.env.PAPERCLIP_API_URL?.trim();
   const bridgeToken = bridge?.env.PAPERCLIP_API_KEY?.trim();
   if (!bridgeUrl || !bridgeToken) {
@@ -550,6 +552,7 @@ interface AcpxPreparedRuntime {
   agentRegistry: AcpAgentRegistry;
   processSessionBridge: AdapterExecutionTargetProcessSessionBridgeHandle | null;
   paperclipBridge: AdapterExecutionTargetPaperclipBridgeHandle | null;
+  executionTargetIsRemote: boolean;
   // The workspace/runtime staged into a runner-backed remote sandbox (null for
   // local runs and the runner-less ACP→CLI fallback). PR 1 stages the workspace
   // + cwd only; the `assetDirs`/`runtimeRootDir`/`restoreWorkspace` it carries
@@ -2779,6 +2782,7 @@ async function buildRuntime(input: {
     agentRegistry,
     processSessionBridge,
     paperclipBridge,
+    executionTargetIsRemote,
     stagedRuntime,
     remoteManagedHomeTeardown,
     remoteStagingDispose,
@@ -4572,6 +4576,7 @@ export function createAcpxEngineExecutor(deps: AcpxEngineExecutorOptions = {}) {
           mcpServers: routePaperclipMcpServersThroughCallbackBridge(
             prepared.mcpServers,
             prepared.paperclipBridge,
+            prepared.executionTargetIsRemote,
           ),
           timeoutMs: prepared.timeoutSec > 0 ? prepared.timeoutSec * 1000 : undefined,
           // Scope ACPX runtime verbose logs to the claude agent only. Codex
