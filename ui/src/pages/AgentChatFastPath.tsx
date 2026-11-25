@@ -17,7 +17,7 @@ import { agentChatsApi, type AgentChatBootstrap } from "@/api/agentChats";
 import { issuesApi } from "@/api/issues";
 import { clearDraftSubmission, loadDraft, loadDraftSubmission, saveDraft, saveDraftSubmission, settleDraftSubmission } from "@/lib/composer-draft";
 import { createIssueDetailPath } from "@/lib/issueDetailBreadcrumb";
-import { Link } from "@/lib/router";
+import { Link, useNavigate } from "@/lib/router";
 import { queryKeys } from "@/lib/queryKeys";
 import { useCompanyLiveEvent } from "@/context/LiveUpdatesProvider";
 
@@ -49,6 +49,7 @@ export function shouldRefreshAgentChatForLiveEvent(event: LiveEvent, chatId: str
 
 export function AgentChatFastPath({ bootstrap, companyId, userId, queryKey, isFetching, refetchBootstrap }: AgentChatFastPathProps) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const agent = bootstrap.agent;
   const chat = bootstrap.chat;
   const draftKey = "paperclip:agent-chat-draft:" + companyId + ":" + userId + ":" + agent.id;
@@ -65,6 +66,8 @@ export function AgentChatFastPath({ bootstrap, companyId, userId, queryKey, isFe
   const [optimisticComment, setOptimisticComment] = useState<IssueComment | null>(null);
   const submitLock = useRef(false);
   const ensureChatPromise = useRef<Promise<Issue> | null>(null);
+  const openingDetailsLock = useRef(false);
+  const [openingDetails, setOpeningDetails] = useState(false);
 
   useCompanyLiveEvent(useCallback((event) => {
     if (!shouldRefreshAgentChatForLiveEvent(event, chat?.id ?? null)) return;
@@ -253,6 +256,42 @@ export function AgentChatFastPath({ bootstrap, companyId, userId, queryKey, isFe
     await submit();
   }, [agent.id, companyId, draftAttempt?.attemptId, draftKey, submit, updateBootstrapMessages]);
 
+  const openAttachmentsAndTools = useCallback(async () => {
+    if (chat) {
+      navigate(createIssueDetailPath(chat.id));
+      return;
+    }
+    if (openingDetailsLock.current || submitLock.current) return;
+    openingDetailsLock.current = true;
+    setOpeningDetails(true);
+    setSubmitError(null);
+    const ensurePromise = ensureChatPromise.current ??= agentChatsApi.ensure(companyId, agent.id);
+    try {
+      const ensuredIssue = await ensurePromise;
+      queryClient.setQueryData<AgentChatBootstrap>(queryKey, previous => previous ? {
+        ...previous,
+        chat: {
+          id: ensuredIssue.id,
+          identifier: ensuredIssue.identifier ?? null,
+          title: ensuredIssue.title,
+          status: ensuredIssue.status,
+          conversationState: ensuredIssue.conversationState ?? null,
+          conversationSessionGeneration: ensuredIssue.conversationSessionGeneration ?? null,
+          executionRunId: ensuredIssue.executionRunId ?? null,
+          updatedAt: ensuredIssue.updatedAt,
+        },
+      } : previous);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.agentChats.list(companyId, userId) });
+      navigate(createIssueDetailPath(ensuredIssue.id));
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Couldn’t open conversation details. Try again.");
+    } finally {
+      if (ensureChatPromise.current === ensurePromise) ensureChatPromise.current = null;
+      openingDetailsLock.current = false;
+      setOpeningDetails(false);
+    }
+  }, [agent.id, chat, companyId, navigate, queryClient, queryKey, userId]);
+
   const loadEarlier = useCallback(async () => {
     if (!olderCursor || olderLoading) return;
     setOlderLoading(true);
@@ -350,9 +389,16 @@ export function AgentChatFastPath({ bootstrap, companyId, userId, queryKey, isFe
           }}
         />
         <div className="flex items-center gap-2 pt-1">
-          <Button type="button" size="sm" variant="ghost" disabled={!chat} asChild={!!chat}>
-            {chat ? <Link to={createIssueDetailPath(chat.id)} aria-label="Open attachments and task tools"><Paperclip className="size-4" /><span className="sr-only">Attachments and tools</span></Link> : <Paperclip className="size-4" aria-label="Attachments are available after the first message" />}
-          </Button>
+          {chat ? (
+            <Button type="button" size="sm" variant="ghost" asChild>
+              <Link to={createIssueDetailPath(chat.id)} aria-label="Open attachments and task tools"><Paperclip className="size-4" /><span className="sr-only">Attachments and tools</span></Link>
+            </Button>
+          ) : (
+            <Button type="button" size="sm" variant="ghost" disabled={openingDetails || submitting} onClick={() => void openAttachmentsAndTools()} aria-label="Open attachments and task tools">
+              {openingDetails ? <LoaderCircle className="size-4 animate-spin" /> : <Paperclip className="size-4" />}
+              <span className="sr-only">Attachments and tools</span>
+            </Button>
+          )}
           <span className="min-w-0 flex-1 text-xs text-muted-foreground" role={submitError || statusMessage ? "status" : undefined}>{submitError ?? statusMessage ?? "Enter to send · Shift+Enter for a new line"}</span>
           {draftAttempt ? (
             <Button type="button" size="sm" variant="outline" disabled={submitting} onClick={() => void checkOrRetry()}>

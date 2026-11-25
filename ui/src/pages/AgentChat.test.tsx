@@ -10,10 +10,11 @@ import { queryKeys } from "@/lib/queryKeys";
 import { AgentChat } from "./AgentChat";
 import { shouldRefreshAgentChatForLiveEvent } from "./AgentChatFastPath";
 
-const state = vi.hoisted(() => ({ agentRef: "cos", companyId: "company-a", userId: "user-a", setBreadcrumbs: vi.fn(), liveHandler: null as ((event: import("@paperclipai/shared").LiveEvent) => void) | null }));
+const state = vi.hoisted(() => ({ agentRef: "cos", companyId: "company-a", userId: "user-a", setBreadcrumbs: vi.fn(), navigate: vi.fn(), liveHandler: null as ((event: import("@paperclipai/shared").LiveEvent) => void) | null }));
 
 vi.mock("@/lib/router", () => ({
   useParams: () => ({ agentRef: state.agentRef }),
+  useNavigate: () => state.navigate,
   Link: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) => <a {...props}>{children}</a>,
 }));
 vi.mock("@/context/CompanyContext", () => ({ useCompany: () => ({ selectedCompanyId: state.companyId }) }));
@@ -63,6 +64,9 @@ beforeEach(() => {
   state.companyId = "company-a";
   state.userId = "user-a";
   state.setBreadcrumbs.mockClear();
+  state.navigate.mockClear();
+  vi.mocked(agentChatsApi.ensure).mockClear();
+  vi.mocked(issuesApi.addComment).mockClear();
   state.liveHandler = null;
   sessionStorage.clear();
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -83,6 +87,77 @@ afterEach(async () => {
 });
 
 describe("lightweight Agent Chat route", () => {
+  it("ensures a standing chat on explicit attachments click, then opens Details without sending or waking", async () => {
+    const withoutChat = bootstrap("cos", "");
+    withoutChat.chat = null;
+    client.setQueryData(queryKeys.agentChats.bootstrap("company-a", "user-a", "cos"), withoutChat);
+    const ensured = {
+      id: "ensured-chat",
+      identifier: "PAP-42",
+      title: "Chief of Staff conversation",
+      status: "open",
+      conversationState: "idle",
+      conversationSessionGeneration: 0,
+      executionRunId: null,
+      updatedAt: new Date("2026-11-24T12:00:00Z"),
+    };
+    let resolveEnsure!: (issue: typeof ensured) => void;
+    vi.mocked(agentChatsApi.ensure).mockImplementationOnce(() => new Promise(resolve => { resolveEnsure = resolve as (issue: typeof ensured) => void; }));
+    await render();
+
+    const textarea = container.querySelector("textarea")!;
+    const valueSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+    await act(async () => {
+      valueSetter.call(textarea, "Keep this draft while I open attachments");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const attachmentsButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Open attachments and task tools"]',
+    )!;
+    await act(async () => {
+      attachmentsButton.click();
+      attachmentsButton.click();
+    });
+
+    expect(agentChatsApi.ensure).toHaveBeenCalledOnce();
+    expect(agentChatsApi.ensure).toHaveBeenCalledWith("company-a", "cos");
+    expect(textarea.value).toBe("Keep this draft while I open attachments");
+    await act(async () => {
+      resolveEnsure(ensured);
+      await Promise.resolve();
+    });
+    expect(state.navigate).toHaveBeenCalledWith("/issues/ensured-chat");
+    expect(textarea.value).toBe("Keep this draft while I open attachments");
+    expect(issuesApi.addComment).not.toHaveBeenCalled();
+    expect(agentChatsApi.ensure).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the draft and stays on chat when ensuring Details fails", async () => {
+    const withoutChat = bootstrap("cos", "");
+    withoutChat.chat = null;
+    client.setQueryData(queryKeys.agentChats.bootstrap("company-a", "user-a", "cos"), withoutChat);
+    vi.mocked(agentChatsApi.ensure).mockRejectedValueOnce(new Error("Chat could not be created"));
+    await render();
+    const textarea = container.querySelector("textarea")!;
+    const valueSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+    await act(async () => {
+      valueSetter.call(textarea, "Keep this draft after an error");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('button[aria-label="Open attachments and task tools"]')!.click();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(agentChatsApi.ensure).toHaveBeenCalledOnce();
+    expect(issuesApi.addComment).not.toHaveBeenCalled();
+    expect(state.navigate).not.toHaveBeenCalled();
+    expect(textarea.value).toBe("Keep this draft after an error");
+    expect(container.textContent).toContain("Chat could not be created");
+  });
+
   it("refreshes the bootstrap for new comments and run lifecycle, scoped to this chat", () => {
     const event = (type: string, payload: Record<string, unknown>) => ({
       id: 1, companyId: "company-a", type, createdAt: "2026-11-24T12:00:00Z", payload,
