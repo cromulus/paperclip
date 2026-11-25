@@ -1297,6 +1297,26 @@ const SIDEBAR_BADGE_ACTIVITY_ENTITIES = new Set([
   "join_request",
 ]);
 
+/** Mark cached chat bootstraps stale without waking every cached conversation. */
+function invalidateAgentChatBootstrapQueries(
+  queryClient: Pick<QueryClient, "invalidateQueries">,
+  companyId: string,
+  userId: string | null,
+  issueId?: string,
+) {
+  if (!userId) return;
+  queryClient.invalidateQueries({
+    predicate: query => {
+      const [key, scopedCompanyId, scopedUserId] = query.queryKey;
+      if (key !== "agentChatBootstrap" || scopedCompanyId !== companyId || scopedUserId !== userId) return false;
+      if (!issueId) return true;
+      const data = query.state.data as { chat?: { id?: unknown } | null } | undefined;
+      return data?.chat?.id === issueId;
+    },
+    refetchType: "none",
+  });
+}
+
 function invalidateActivityQueries(
   queryClient: ReturnType<typeof useQueryClient>,
   companyId: string,
@@ -1356,6 +1376,15 @@ function invalidateActivityQueries(
     const knownChat = entityId && queryClient.getQueryData<Issue[]>(chatListKey)?.some(chat => chat.id === entityId);
     if (knownChat || action === "issue.conversation_opened" && ownActorActivity) {
       queryClient.invalidateQueries({ queryKey: chatListKey });
+    }
+    if (entityId && [
+      "issue.comment_added",
+      "issue.conversation_session_started",
+      "issue.updated",
+      "issue.tree_hold_created",
+      "issue.tree_hold_released",
+    ].includes(action ?? "")) {
+      invalidateAgentChatBootstrapQueries(queryClient, companyId, currentActor.userId, entityId);
     }
     if (action === "issue.tree_hold_created" || action === "issue.tree_hold_released" || action === "issue.updated") {
       // An ancestor hold or reparenting changes descendants' effective pause.
@@ -1836,6 +1865,8 @@ function handleLiveEvent(
     event.type === "heartbeat.run.queued" ||
     event.type === "heartbeat.run.status"
   ) {
+    const issueId = readString(payload.issueId);
+    if (issueId) invalidateAgentChatBootstrapQueries(queryClient, expectedCompanyId, currentActor.userId, issueId);
     const liveRunsPatched = applyRunLifecycleToCompanyLiveRuns(
       queryClient,
       expectedCompanyId,
@@ -1859,6 +1890,8 @@ function handleLiveEvent(
   }
 
   if (event.type === "heartbeat.run.progress") {
+    const issueId = readString(payload.issueId);
+    if (issueId) invalidateAgentChatBootstrapQueries(queryClient, expectedCompanyId, currentActor.userId, issueId);
     invalidateHeartbeatProgressQueries(queryClient, expectedCompanyId, payload);
     invalidateVisibleIssueRunQueries(queryClient, pathname, payload);
     return;
@@ -1975,6 +2008,7 @@ export const __liveUpdatesTestUtils = {
   applyRunLiveStatusPatchToCaches,
   hydrateVisibleIssueComment,
   invalidateActivityQueries,
+  invalidateAgentChatBootstrapQueries,
   invalidateHeartbeatQueries,
   invalidateHeartbeatProgressQueries,
   invalidateVisibleIssueRunQueries,
@@ -2069,6 +2103,7 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
     if (wasHidden.current) {
       wasHidden.current = false;
       // Reconcile events missed while hidden, including completed runs/issues.
+      invalidateAgentChatBootstrapQueries(queryClient, liveCompanyId, currentActorRef.current.userId);
       void queryClient.invalidateQueries({ type: "active" }, { cancelRefetch: false });
     }
 
@@ -2096,6 +2131,7 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
       if (closed || pollTimer !== null) return;
       // Visible queries still need fresh state when realtime is unavailable.
       pollTimer = window.setInterval(() => {
+        invalidateAgentChatBootstrapQueries(queryClient, liveCompanyId, currentActorRef.current.userId);
         void queryClient.invalidateQueries({ type: "active" }, { cancelRefetch: false });
       }, DISCONNECTED_POLL_INTERVAL_MS);
     };
@@ -2135,6 +2171,10 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
         stopPolling();
         if (reconnectAttempt > 0) {
           gateRef.current.suppressUntil = Date.now() + RECONNECT_SUPPRESS_MS;
+          // Events are not replayed after a reconnect. Active queries refresh
+          // below; mark only this company's current user's cached chat
+          // bootstraps stale so an inactive chat refreshes when reopened.
+          invalidateAgentChatBootstrapQueries(queryClient, liveCompanyId, currentActorRef.current.userId);
         }
         // The initial page queries can finish before the first subscription,
         // too. Reconcile that gap as well as reconnects: events are not replayed.

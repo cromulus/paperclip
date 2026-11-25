@@ -96,6 +96,28 @@ describe("LiveUpdatesProvider connection recovery", () => {
     expect(healthRead).toHaveBeenCalled();
   });
 
+  it("marks inactive owner-scoped chat bootstraps stale after reconnect", async () => {
+    vi.stubGlobal("WebSocket", Socket);
+    const currentChatKey = queryKeys.agentChats.bootstrap("company-1", "viewer", "agent-1");
+    const anotherUserKey = queryKeys.agentChats.bootstrap("company-1", "someone-else", "agent-1");
+    client.setQueryData(currentChatKey, { chat: { id: "chat-1" }, messages: [{ id: "cached" }] });
+    client.setQueryData(anotherUserKey, { chat: { id: "chat-1" }, messages: [] });
+    await render();
+    await act(async () => Socket.instances[0].onopen?.());
+    expect(client.getQueryState(currentChatKey)?.isInvalidated).toBe(false);
+
+    // Simulate a fresh inactive cache after the initial connect. A missed
+    // reply during the disconnect should make that cache stale on reconnect.
+    client.setQueryData(currentChatKey, { chat: { id: "chat-1" }, messages: [{ id: "still-cached" }] });
+    await act(async () => Socket.instances[0].onclose?.());
+    await act(async () => vi.advanceTimersByTimeAsync(1_001));
+    expect(Socket.instances).toHaveLength(2);
+    await act(async () => Socket.instances[1].onopen?.());
+
+    expect(client.getQueryState(currentChatKey)?.isInvalidated).toBe(true);
+    expect(client.getQueryState(anotherUserKey)?.isInvalidated).toBe(false);
+  });
+
   it.each(["missing", "throws"])("polls visible data and resumes realtime when the constructor %s", async (failure) => {
     vi.stubGlobal("WebSocket", failure === "missing" ? undefined : class {
       constructor() { throw new DOMException("Blocked", "SecurityError"); }

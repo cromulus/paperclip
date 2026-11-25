@@ -69,6 +69,35 @@ describe("LiveUpdatesProvider issue invalidation", () => {
     expect(invalidate).not.toHaveBeenCalledWith({ queryKey: queryKeys.agentChats.list("company-1", "user-2") });
     client.clear();
   });
+  it("marks only the matching owner's inactive chat bootstrap stale on a reply, then refetches it when observed", async () => {
+    const client = new QueryClient();
+    const targetKey = queryKeys.agentChats.bootstrap("company-1", "user-1", "agent-1");
+    const otherAgentKey = queryKeys.agentChats.bootstrap("company-1", "user-1", "agent-2");
+    const otherUserKey = queryKeys.agentChats.bootstrap("company-1", "user-2", "agent-1");
+    const otherCompanyKey = queryKeys.agentChats.bootstrap("company-2", "user-1", "agent-1");
+    client.setQueryData(targetKey, { chat: { id: "chat-1" }, messages: [{ id: "old" }] });
+    client.setQueryData(otherAgentKey, { chat: { id: "chat-2" }, messages: [] });
+    client.setQueryData(otherUserKey, { chat: { id: "chat-1" }, messages: [] });
+    client.setQueryData(otherCompanyKey, { chat: { id: "chat-1" }, messages: [] });
+
+    __liveUpdatesTestUtils.invalidateActivityQueries(client, "company-1", {
+      entityType: "issue", entityId: "chat-1", action: "issue.comment_added",
+      actorType: "agent", actorId: "agent-1",
+    }, { userId: "user-1", agentId: null });
+
+    expect(client.getQueryState(targetKey)?.isInvalidated).toBe(true);
+    expect(client.getQueryState(otherAgentKey)?.isInvalidated).toBe(false);
+    expect(client.getQueryState(otherUserKey)?.isInvalidated).toBe(false);
+    expect(client.getQueryState(otherCompanyKey)?.isInvalidated).toBe(false);
+
+    const fetchLatest = vi.fn(async () => ({ chat: { id: "chat-1" }, messages: [{ id: "new-reply" }] }));
+    const observer = new QueryObserver(client, { queryKey: targetKey, queryFn: fetchLatest, staleTime: 30_000 });
+    const unsubscribe = observer.subscribe(() => undefined);
+    await vi.waitFor(() => expect(fetchLatest).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(client.getQueryData(targetKey)?.messages).toEqual([{ id: "new-reply" }]));
+    unsubscribe();
+    client.clear();
+  });
 
   it("refreshes the source task activity when a company skill is created", () => {
     const client = new QueryClient();
