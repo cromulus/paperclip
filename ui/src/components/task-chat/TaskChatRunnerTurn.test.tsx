@@ -17,11 +17,19 @@ import type {
   TaskChatRuntimeRequestItem,
 } from "./task-chat-model";
 
+// This suite covers runner-turn behavior, not code splitting. The dedicated
+// lazy-protocol suite exercises the deferred boundary and its loading state.
+vi.mock("./DeferredTaskChatProtocolCard", async () => {
+  const protocolModule = await vi.importActual<typeof import("./TaskChatProtocolCard")>("./TaskChatProtocolCard");
+  return { DeferredTaskChatProtocolCard: protocolModule.TaskChatProtocolCard };
+});
+
 describe("TaskChatRunnerTurn", () => {
   let container: HTMLDivElement;
   let root: Root;
 
   beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -1256,7 +1264,7 @@ describe("TaskChatRunnerTurn", () => {
     ).toBe(true);
   });
 
-  it("keeps a compact pending runtime entry without duplicating composer controls", async () => {
+  it("keeps a compact pending runtime entry without duplicating composer controls", () => {
     const onDecision = vi.fn();
     render(
       [

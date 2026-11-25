@@ -1,7 +1,7 @@
 import { TaskBrowserActivity } from "../task-side-panel/TaskBrowserActivity";
 import { TaskChatProjectCreatedCard } from "./TaskChatProjectCreatedCard";
 import { TaskChatSkillCreatedCard } from "./TaskChatSkillCreatedCard";
-import { Component, Suspense, lazy, useMemo, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import type { IssueAttachment } from "@paperclipai/shared";
 import { cn } from "@/lib/utils";
 import { useStreamlinedTaskChatPresentation } from "./presentation-mode";
@@ -25,39 +25,9 @@ import { TaskMessageScroller } from "./TaskMessageScroller";
 import { TaskChatProtocolActivityRow } from "./TaskChatProtocolActivityRow";
 import { TaskChatPlanPreviewCard } from "./TaskChatPlanPreviewCard";
 import { compactAdjacentErrors } from "./adjacent-errors";
+import { DeferredTaskChatProtocolCard } from "./DeferredTaskChatProtocolCard";
 
 const EMPTY_ATTACHMENTS: IssueAttachment[] = [];
-const LazyTaskChatProtocolCard = lazy(() =>
-  import("./TaskChatProtocolCard").then((module) => ({ default: module.TaskChatProtocolCard })),
-);
-
-class TaskChatProtocolCardErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
-  override state = { failed: false };
-
-  static getDerivedStateFromError() {
-    return { failed: true };
-  }
-
-  override render() {
-    if (this.state.failed) {
-      return <div role="alert" className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">This interaction could not be loaded.</div>;
-    }
-    return this.props.children;
-  }
-}
-
-function DeferredTaskChatProtocolCard({ item, onRuntimeRequestDecision }: {
-  item: Extract<TaskChatItem, { kind: "protocol" }>;
-  onRuntimeRequestDecision?: (item: TaskChatRuntimeRequestItem, decision: TaskChatRuntimeRequestDecision) => void | Promise<void>;
-}) {
-  return (
-    <TaskChatProtocolCardErrorBoundary key={item.id}>
-      <Suspense fallback={<div role="status" aria-busy="true" className="rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground">Loading interaction…</div>}>
-        <LazyTaskChatProtocolCard item={item} onRuntimeRequestDecision={onRuntimeRequestDecision} />
-      </Suspense>
-    </TaskChatProtocolCardErrorBoundary>
-  );
-}
 
 interface TaskChatThreadViewProps {
   items: TaskChatItem[];

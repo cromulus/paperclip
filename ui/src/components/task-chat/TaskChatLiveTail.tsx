@@ -5,7 +5,7 @@ import { TaskChatToolCard } from "./TaskChatToolCard";
 import { TaskChatUsageReadout } from "./TaskChatUsageReadout";
 import { TaskChatRunnerActivityGroup } from "./TaskChatRunnerActivityGroup";
 import { TaskChatThinking } from "./TaskChatThinking";
-import { TaskChatProtocolCard } from "./TaskChatProtocolCard";
+import { DeferredTaskChatProtocolCard } from "./DeferredTaskChatProtocolCard";
 import { buildTurnTimelineRows } from "./transcript-adapter";
 import { visibleTranscriptPlaceholder } from "./TaskChatShimmer";
 
@@ -101,7 +101,7 @@ function renderTailRow(
         />
       );
     case "protocol":
-      return <TaskChatProtocolCard key={item.id} item={item} onRuntimeRequestDecision={onRuntimeRequestDecision} />;
+      return <DeferredTaskChatProtocolCard item={item} onRuntimeRequestDecision={onRuntimeRequestDecision} />;
     // Markers, interactions, briefs, statuses, turns, and dropped debug kinds
     // cannot appear as direct live-tail rows.
     default:

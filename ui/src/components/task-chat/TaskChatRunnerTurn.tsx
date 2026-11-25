@@ -12,7 +12,7 @@ import { TaskChatAgentIdentity, TaskChatBubble } from "./TaskChatBubble";
 import { TaskChatBubbleActions } from "./TaskChatBubbleActions";
 import { formatTaskChatTimestamp } from "./task-chat-adapter";
 import { TaskChatRunnerActivityGroup } from "./TaskChatRunnerActivityGroup";
-import { TaskChatProtocolCard } from "./TaskChatProtocolCard";
+import { DeferredTaskChatProtocolCard } from "./DeferredTaskChatProtocolCard";
 import { TaskChatPlanPreviewCard } from "./TaskChatPlanPreviewCard";
 import { TaskChatShimmerScope, useTaskChatShimmer } from "./TaskChatShimmer";
 import {
@@ -264,7 +264,7 @@ export function TaskChatRunnerTurn({
                   }
                 />
               ) : row.kind === "protocol" ? (
-                <TaskChatProtocolCard
+                <DeferredTaskChatProtocolCard
                   item={row}
                   onRuntimeRequestDecision={onRuntimeRequestDecision}
                 />
