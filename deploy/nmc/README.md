@@ -2,7 +2,9 @@
 
 The November 25 upgrade integrates upstream `304854ee9926dfe677e98c282e1dc08dda0000ad`
 and the retained NMC production source changes. The root Dockerfile builds the UI,
-server, adapters, and Runner together. Do not apply the old compiled-bundle patches
+server, adapters, and Runner together. The NMC image stage also builds the
+installed wiki plugin against this revision of the plugin SDK. Remove the legacy
+compiled wiki and owner-identity bind mounts when promoting this image. Do not apply the old compiled-bundle patches
 to a new upstream image. `Dockerfile.2026-1106-legacy` and the patch scripts are
 historical recovery material for that release only.
 
