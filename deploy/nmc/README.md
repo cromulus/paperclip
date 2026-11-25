@@ -78,7 +78,9 @@ read-only random secret file at `/run/secrets/nmc-proxy-owner-token` and set
 The private front-door nginx must overwrite `X-NMC-Proxy-Token` with that secret
 only on the SSO-protected route. OAuth2 Proxy supplies the owner identity and
 group headers after authentication. The native/public ingress must not inject
-this credential. Do not put the value in Git, command arguments, or logs.
+this credential. Remove OAuth2 Proxy skip-auth routes; the front-door native
+allowlist already handles those endpoints directly. This keeps every request
+carrying the proxy credential behind SSO. Do not put the value in Git, command arguments, or logs.
 
 The server requires the secret, loopback transport, configured owner subject,
 email, host, HTTPS forwarding, and `nmc_atelier` group together. This applies to
