@@ -5,6 +5,7 @@ import { applyObservabilityEnvironment } from "../agent-observability.js";
 import { cancellableSandboxStartup } from "./startup-cancellation.js";
 import { emitStartupReuse, environmentStartupReuse, summarizeStartupReuse, type StartupReuseReason } from "../startup-reuse.js";
 import { withAdapterExecutionPhase, type AdapterExecutionPhase } from "../execution-phase.js";
+import { buildPaperclipMcpBridgeRoutes } from "../paperclip-mcp-callback-bridge.js";
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import os from "node:os";
@@ -316,36 +317,7 @@ export function routePaperclipMcpServersThroughCallbackBridge(
   });
 }
 
-/** Host-only credentials for exact built-in MCP paths. Never serialize these
- * values into the remote process configuration; the bridge uses them after
- * authenticating its own per-run token. */
-export function buildPaperclipMcpBridgeRoutes(
-  servers: AdapterRuntimeMcpServer[],
-): Array<{ path: string; headers: Record<string, string> }> {
-  const routes = new Map<string, { path: string; headers: Record<string, string> }>();
-  for (const server of servers) {
-    let url: URL;
-    try {
-      url = new URL(server.url);
-    } catch {
-      continue;
-    }
-    const loopbackHost = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname.toLowerCase());
-    const allowedPath = url.pathname === "/api/mcp/project-tools" ||
-      url.pathname === "/api/mcp/runtime-tools" ||
-      /^\/api\/mcp\/gateways\/[A-Za-z0-9._-]+$/.test(url.pathname);
-    if (url.protocol !== "http:" || !loopbackHost || !allowedPath || url.search || !server.token.trim()) continue;
-
-    const path = url.pathname;
-    const route = { path, headers: { authorization: `Bearer ${server.token}` } };
-    const prior = routes.get(path);
-    if (prior && prior.headers.authorization !== route.headers.authorization) {
-      throw new Error("Conflicting credentials for a Paperclip MCP callback path.");
-    }
-    routes.set(path, route);
-  }
-  return [...routes.values()];
-}
+export { buildPaperclipMcpBridgeRoutes } from "../paperclip-mcp-callback-bridge.js";
 
 export interface AcpxEngineBillingIdentity {
   provider?: string | null;

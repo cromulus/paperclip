@@ -1,0 +1,33 @@
+# Add to the existing Paperclip Compose project with:
+#   docker compose -f docker-compose.yml -f docker-compose.agent-executor.yml up -d
+# The executor is reachable only on the private Docker network. It has a
+# separate CPU/memory/pid cgroup from the Paperclip API/UI service.
+services:
+  agent-executor:
+    image: ${PAPERCLIP_EXECUTOR_IMAGE:?PAPERCLIP_EXECUTOR_IMAGE must be set to the version-matched executor image}
+    restart: unless-stopped
+    expose:
+      - "22"
+    cpus: "${AGENT_EXECUTOR_CPUS:-4.0}"
+    mem_limit: ${AGENT_EXECUTOR_MEMORY:-4g}
+    pids_limit: ${AGENT_EXECUTOR_PIDS:-1024}
+    stop_grace_period: 20s
+    tmpfs:
+      - /run/sshd:rw,noexec,nosuid,size=1m,mode=0755
+      - /tmp:rw,nosuid,size=64m,mode=1777
+    volumes:
+      - /var/lib/nmc/paperclip/executor/accounts.json:/etc/paperclip-executor/accounts.json:ro
+      - /var/lib/nmc/paperclip/executor/hostkeys:/etc/ssh/hostkeys:rw
+      - /var/lib/nmc/paperclip/executor/homes:/var/lib/paperclip-executor/homes:rw
+    networks:
+      - private
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import socket; s=socket.create_connection(('127.0.0.1',22),2); s.close()"
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s

@@ -73,6 +73,58 @@ export type ManagedCodexMcpGateway = {
   bearerToken: string;
 };
 
+const BUILT_IN_PAPERCLIP_MCP_PATHS = [
+  "/api/mcp/project-tools",
+  "/api/mcp/runtime-tools",
+] as const;
+const BUILT_IN_PAPERCLIP_GATEWAY_PATH = /^\/api\/mcp\/gateways\/[A-Za-z0-9._-]+$/;
+
+/**
+ * Rewrite only controller-loopback MCP endpoints in the remote Codex config.
+ * The host-side bridge retains each original bearer token; the remote file gets
+ * the per-run bridge token. External MCP endpoints remain unchanged.
+ */
+export function routeManagedCodexMcpGatewaysThroughCallbackBridge(input: {
+  gateways: ManagedCodexMcpGateway[];
+  controllerApiUrl: string;
+  bridgeApiUrl?: string | null;
+  bridgeToken?: string | null;
+  routes: Array<{ path: string; headers: Record<string, string> }>;
+}): ManagedCodexMcpGateway[] {
+  if (!input.bridgeApiUrl || !input.bridgeToken) {
+    return input.gateways;
+  }
+  const routes = new Map(input.routes.map((route) => [route.path, route]));
+  const bridgeApiUrl = new URL(input.bridgeApiUrl);
+  return input.gateways.map((gateway) => {
+    let source: URL;
+    try {
+      source = new URL(gateway.endpointPath, input.controllerApiUrl);
+    } catch {
+      return gateway;
+    }
+    const loopback = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(source.hostname.toLowerCase());
+    if (source.protocol !== "http:" || !loopback) return gateway;
+    const builtInPath = (BUILT_IN_PAPERCLIP_MCP_PATHS as readonly string[]).includes(source.pathname) ||
+      BUILT_IN_PAPERCLIP_GATEWAY_PATH.test(source.pathname);
+    if (!builtInPath || source.search || source.hash) {
+      throw new Error("Remote Codex config contains an unapproved loopback MCP endpoint.");
+    }
+    const route = routes.get(source.pathname);
+    const hostAuthorization = Object.entries(route?.headers ?? {})
+      .find(([name]) => name.toLowerCase() === "authorization")?.[1]?.trim();
+    if (!route || !hostAuthorization || hostAuthorization !== `Bearer ${gateway.bearerToken}`) {
+      throw new Error("Remote Codex MCP route has no matching host-held authorization.");
+    }
+    const endpoint = new URL(source.pathname, bridgeApiUrl);
+    return {
+      ...gateway,
+      endpointPath: endpoint.toString(),
+      bearerToken: input.bridgeToken!,
+    };
+  });
+}
+
 export function mergeManagedCodexMcpGateways(
   primary: ManagedCodexMcpGateway[],
   secondary: ManagedCodexMcpGateway[],

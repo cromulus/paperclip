@@ -17,6 +17,7 @@ import {
   isManagedCodexHomePath,
   prepareManagedCodexHome,
   reconcileManagedCodexHome,
+  routeManagedCodexMcpGatewaysThroughCallbackBridge,
   seedManagedCodexHome,
   stageCodexHomeForSync,
   writeManagedCodexMcpConfig,
@@ -36,6 +37,35 @@ describe("mergeManagedCodexMcpGateways", () => {
       { name: "runtime", endpointPath: "/runtime", bearerToken: "runtime-token" },
       { name: "manual", endpointPath: "/manual", bearerToken: "manual-token" },
     ]);
+  });
+});
+
+describe("routeManagedCodexMcpGatewaysThroughCallbackBridge", () => {
+  it("puts only built-in loopback gateways on the run bridge with its token", () => {
+    const gateways = [
+      { name: "Paperclip projects", endpointPath: "http://127.0.0.1:3100/api/mcp/project-tools", bearerToken: "host-project" },
+      { name: "External", endpointPath: "https://mcp.example.test/mcp", bearerToken: "external" },
+    ];
+    expect(routeManagedCodexMcpGatewaysThroughCallbackBridge({
+      gateways,
+      controllerApiUrl: "http://127.0.0.1:3100/api",
+      bridgeApiUrl: "http://127.0.0.1:4310",
+      bridgeToken: "per-run-bridge",
+      routes: [{ path: "/api/mcp/project-tools", headers: { authorization: "Bearer host-project" } }],
+    })).toEqual([
+      { name: "Paperclip projects", endpointPath: "http://127.0.0.1:4310/api/mcp/project-tools", bearerToken: "per-run-bridge" },
+      gateways[1],
+    ]);
+  });
+
+  it("fails closed when a loopback endpoint has no exact captured route", () => {
+    expect(() => routeManagedCodexMcpGatewaysThroughCallbackBridge({
+      gateways: [{ name: "Paperclip projects", endpointPath: "http://127.0.0.1:3100/api/mcp/project-tools", bearerToken: "unmatched" }],
+      controllerApiUrl: "http://127.0.0.1:3100/api",
+      bridgeApiUrl: "http://127.0.0.1:4310",
+      bridgeToken: "per-run-bridge",
+      routes: [],
+    })).toThrow("Remote Codex MCP route has no matching host-held authorization.");
   });
 });
 
