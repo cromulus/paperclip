@@ -83,6 +83,7 @@ import {
   type TerminalResultCleanupOptions,
 } from "./server-utils.js";
 import { sanitizeRemoteExecutionEnv } from "./remote-execution-env.js";
+import { isPaperclipMcpCallbackPath } from "./paperclip-mcp-callback-bridge.js";
 import { preferredShellForSandbox, shellCommandArgs } from "./sandbox-shell.js";
 import {
   runWithRuntimeParent,
@@ -4421,9 +4422,7 @@ export async function startAdapterExecutionTargetPaperclipBridge(input: {
   const hostApiUrl = input.hostApiUrl?.trim() || resolveDefaultPaperclipApiUrl();
   const trustedMcpHeaders = new Map<string, Record<string, string>>();
   for (const route of input.mcpRoutes ?? []) {
-    const allowedPath = route.path === "/api/mcp/project-tools" ||
-      route.path === "/api/mcp/runtime-tools" ||
-      /^\/api\/mcp\/gateways\/[A-Za-z0-9._-]+$/.test(route.path);
+    const allowedPath = isPaperclipMcpCallbackPath(route.path);
     const authorization = Object.entries(route.headers).find(([name]) => name.toLowerCase() === "authorization")?.[1]?.trim();
     if (!allowedPath || !authorization) continue;
     const prior = trustedMcpHeaders.get(route.path);
@@ -4508,9 +4507,7 @@ export async function startAdapterExecutionTargetPaperclipBridge(input: {
       headers.set(key, value);
     }
     const mcpHeaders = method === "POST" ? trustedMcpHeaders.get(request.path) : undefined;
-    const isInternalMcpPath = request.path === "/api/mcp/project-tools" ||
-      request.path === "/api/mcp/runtime-tools" ||
-      /^\/api\/mcp\/gateways\/[A-Za-z0-9._-]+$/.test(request.path);
+    const isInternalMcpPath = isPaperclipMcpCallbackPath(request.path);
     if (isInternalMcpPath && request.query.trim()) {
       return {
         status: 400,

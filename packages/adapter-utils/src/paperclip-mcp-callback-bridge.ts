@@ -1,5 +1,12 @@
 import type { AdapterRuntimeMcpServer } from "./types.js";
 
+/** Exact built-in run-scoped MCP routes advertised by Paperclip today. */
+export function isPaperclipMcpCallbackPath(path: string): boolean {
+  return path === "/api/mcp/project-tools" ||
+    path === "/mcp/runtime-tools" ||
+    /^\/mcp\/gateways\/[A-Za-z0-9._-]+$/.test(path);
+}
+
 /** Build the exact host-owned auth map for built-in loopback MCP endpoints. */
 export function buildPaperclipMcpBridgeRoutes(
   servers: AdapterRuntimeMcpServer[],
@@ -13,9 +20,7 @@ export function buildPaperclipMcpBridgeRoutes(
       continue;
     }
     const loopbackHost = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname.toLowerCase());
-    const allowedPath = url.pathname === "/api/mcp/project-tools" ||
-      url.pathname === "/api/mcp/runtime-tools" ||
-      /^\/api\/mcp\/gateways\/[A-Za-z0-9._-]+$/.test(url.pathname);
+    const allowedPath = isPaperclipMcpCallbackPath(url.pathname);
     if (url.protocol !== "http:" || !loopbackHost || !allowedPath || url.search || !server.token.trim()) continue;
 
     const path = url.pathname;

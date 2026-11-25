@@ -13,6 +13,7 @@ import {
   startAdapterExecutionTargetPaperclipBridge,
   type AdapterSandboxExecutionTarget,
 } from "./execution-target.js";
+import { isPaperclipMcpCallbackPath } from "./paperclip-mcp-callback-bridge.js";
 import { runChildProcess } from "./server-utils.js";
 
 const tempDirs: string[] = [];
@@ -76,6 +77,15 @@ function json(res: ServerResponse, status: number, body: unknown) {
 }
 
 describe("Paperclip native MCP callback bridge integration", () => {
+  it("recognizes only the advertised built-in MCP route paths", () => {
+    expect(isPaperclipMcpCallbackPath("/api/mcp/project-tools")).toBe(true);
+    expect(isPaperclipMcpCallbackPath("/mcp/runtime-tools")).toBe(true);
+    expect(isPaperclipMcpCallbackPath("/mcp/gateways/gw_doktor")).toBe(true);
+    expect(isPaperclipMcpCallbackPath("/api/mcp/runtime-tools")).toBe(false);
+    expect(isPaperclipMcpCallbackPath("/api/mcp/gateways/gw_doktor")).toBe(false);
+    expect(isPaperclipMcpCallbackPath("/mcp/gateways/gw_doktor/extra")).toBe(false);
+  });
+
   it("relays JSON-RPC through the per-run token and forwards only captured MCP credentials", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "paperclip-native-mcp-bridge-"));
     tempDirs.push(tempDir);
@@ -118,7 +128,7 @@ describe("Paperclip native MCP callback bridge integration", () => {
     const mcpPort = await listen(mcpServer);
     const serverDescriptor: AdapterRuntimeMcpServer = {
       name: "Paperclip runtime tools",
-      url: `http://127.0.0.1:${mcpPort}/api/mcp/runtime-tools`,
+      url: `http://127.0.0.1:${mcpPort}/mcp/runtime-tools`,
       token: "trusted-native-mcp-token",
       connectionId: "runtime-tools",
     };
@@ -145,7 +155,7 @@ describe("Paperclip native MCP callback bridge integration", () => {
       const remoteConfig = routePaperclipMcpServersThroughCallbackBridge(originalServers, bridge);
       const routedServer = remoteConfig[0] as { url: string; headers?: Array<{ name: string; value: string }> } | undefined;
       if (!routedServer) throw new Error("Expected the runtime MCP server to remain configured.");
-      expect(routedServer.url).toBe(`${bridge!.env.PAPERCLIP_API_URL}/api/mcp/runtime-tools`);
+      expect(routedServer.url).toBe(`${bridge!.env.PAPERCLIP_API_URL}/mcp/runtime-tools`);
       expect(JSON.stringify(remoteConfig)).not.toContain(serverDescriptor.token);
       expect(JSON.stringify(remoteConfig)).not.toContain("host-api-token-must-not-be-used-for-mcp");
       expect(routedServer.headers).toEqual([{ name: "Authorization", value: `Bearer ${bridge!.env.PAPERCLIP_API_KEY}` }]);
@@ -183,7 +193,7 @@ describe("Paperclip native MCP callback bridge integration", () => {
       expect(notified.body).toBe("");
 
       expect(calls).toHaveLength(4);
-      expect(calls.every((call) => call.path === "/api/mcp/runtime-tools" && call.auth === "Bearer trusted-native-mcp-token" && call.runId === "run-native-mcp-acceptance")).toBe(true);
+      expect(calls.every((call) => call.path === "/mcp/runtime-tools" && call.auth === "Bearer trusted-native-mcp-token" && call.runId === "run-native-mcp-acceptance")).toBe(true);
 
       const wrongAuth = await fetch(endpoint, {
         method: "POST",
@@ -192,10 +202,16 @@ describe("Paperclip native MCP callback bridge integration", () => {
       });
       expect(wrongAuth.status).toBe(401);
       const beforeDenied = calls.length;
-      const unassignedMcpRoute = await fetch(`${bridge!.env.PAPERCLIP_API_URL}/api/mcp/project-tools`, {
+      const staleRuntimeAlias = await fetch(`${bridge!.env.PAPERCLIP_API_URL}/api/mcp/runtime-tools`, {
         method: "POST",
         headers,
         body: JSON.stringify({ jsonrpc: "2.0", id: 5, method: "tools/list" }),
+      });
+      expect(staleRuntimeAlias.status).toBe(403);
+      const unassignedMcpRoute = await fetch(`${bridge!.env.PAPERCLIP_API_URL}/api/mcp/project-tools`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ jsonrpc: "2.0", id: 6, method: "tools/list" }),
       });
       expect(unassignedMcpRoute.status).toBe(403);
       const getAttempt = await fetch(endpoint, { headers: { authorization: headers.authorization } });

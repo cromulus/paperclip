@@ -7,6 +7,7 @@ import { shellQuote } from "@paperclipai/adapter-utils/ssh";
 import { buildCodexAuthInboundProvision, CODEX_AUTH_MERGE_EXTRACT_SCRIPT_NAME } from "./codex-auth-merge-scripts.js";
 import { resolvePaperclipInstanceRootForAdapter } from "@paperclipai/adapter-utils/server-utils";
 import { isCodexAuthCachePath, readSubscriptionAccountId } from "./codex-auth-cache.js";
+import { isPaperclipMcpCallbackPath } from "@paperclipai/adapter-utils/paperclip-mcp-callback-bridge";
 
 const TRUTHY_ENV_RE = /^(1|true|yes|on)$/i;
 const COPIED_SHARED_FILES = ["config.json", "config.toml", "instructions.md"] as const;
@@ -73,12 +74,6 @@ export type ManagedCodexMcpGateway = {
   bearerToken: string;
 };
 
-const BUILT_IN_PAPERCLIP_MCP_PATHS = [
-  "/api/mcp/project-tools",
-  "/api/mcp/runtime-tools",
-] as const;
-const BUILT_IN_PAPERCLIP_GATEWAY_PATH = /^\/api\/mcp\/gateways\/[A-Za-z0-9._-]+$/;
-
 /**
  * Rewrite only controller-loopback MCP endpoints in the remote Codex config.
  * The host-side bridge retains each original bearer token; the remote file gets
@@ -105,8 +100,7 @@ export function routeManagedCodexMcpGatewaysThroughCallbackBridge(input: {
     }
     const loopback = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(source.hostname.toLowerCase());
     if (source.protocol !== "http:" || !loopback) return gateway;
-    const builtInPath = (BUILT_IN_PAPERCLIP_MCP_PATHS as readonly string[]).includes(source.pathname) ||
-      BUILT_IN_PAPERCLIP_GATEWAY_PATH.test(source.pathname);
+    const builtInPath = isPaperclipMcpCallbackPath(source.pathname);
     if (!builtInPath || source.search || source.hash) {
       throw new Error("Remote Codex config contains an unapproved loopback MCP endpoint.");
     }

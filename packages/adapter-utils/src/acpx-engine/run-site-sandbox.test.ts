@@ -182,6 +182,9 @@ describe("sandbox run site", () => {
         events.push("process-session:launch");
         return { agentCommand: null, stop: async () => {} } as never;
       },
+      prepareBeforeLaunch: async ({ stagedRuntime, bridgeEnv }) => {
+        events.push(`prepare-native-config:${bridgeEnv.PAPERCLIP_API_KEY}:${String(Boolean(stagedRuntime))}`);
+      },
     });
 
     await site.placeWorkspace(makeContext("s"));
@@ -198,6 +201,8 @@ describe("sandbox run site", () => {
     releasePaperclip();
     const transport = await transportPromise;
     expect(events.indexOf("paperclip:env-ready")).toBeLessThan(events.indexOf("process-session:launch"));
+    expect(events.indexOf("paperclip:env-ready")).toBeLessThan(events.indexOf("prepare-native-config:run-token:true"));
+    expect(events.indexOf("prepare-native-config:run-token:true")).toBeLessThan(events.indexOf("process-session:launch"));
     expect(processLaunchEnv).toEqual({ BASE: "1", CODEX_HOME: "/remote/home", PAPERCLIP_API_KEY: "run-token" });
     expect(transport.launchEnv).toEqual(processLaunchEnv);
   });
@@ -256,7 +261,8 @@ describe("sandbox run site", () => {
         },
       ],
     ]);
-    const { site, env } = makeSite({ stagedRuntimes, isCompatibleResume: true });
+    const prepareBeforeLaunch = vi.fn(async () => {});
+    const { site, env } = makeSite({ stagedRuntimes, isCompatibleResume: true, prepareBeforeLaunch });
 
     // A borrow reads the staged entry without removal, so an overlapping run of
     // the same session still reads it.
@@ -276,6 +282,14 @@ describe("sandbox run site", () => {
     expect(candidate).toEqual({ stagedRuntime: cachedRuntime });
     expect("runtime" in candidate).toBe(false);
     expect("sessionHandle" in candidate).toBe(false);
+
+    // A compatible resume still refreshes run-scoped native MCP config with
+    // the current bridge token before its process-session launch.
+    await site.startTransport(makeContext("paperclip:c:a:t:fp"));
+    expect(prepareBeforeLaunch).toHaveBeenCalledWith({
+      stagedRuntime: cachedRuntime,
+      bridgeEnv: { PAPERCLIP_API_KEY: "run-token" },
+    });
   });
 
   it("test_site_plan_supplies_session_cwd_spawn_cwd_and_tracing_before_the_fingerprint_build", () => {

@@ -143,8 +143,9 @@ export const DEFAULT_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST: readonly SandboxCa
   // Run-scoped Paperclip MCP transports are JSON-RPC POST endpoints. Keep GET
   // (including long-lived event streams) denied; these handlers return bounded
   // JSON/202 responses and the server authenticates the forwarded run token.
-  { method: "POST", path: /^\/api\/mcp\/(?:project-tools|runtime-tools)$/ },
-  { method: "POST", path: /^\/api\/mcp\/gateways\/[A-Za-z0-9._-]+$/ },
+  { method: "POST", path: /^\/api\/mcp\/project-tools$/ },
+  { method: "POST", path: /^\/mcp\/runtime-tools$/ },
+  { method: "POST", path: /^\/mcp\/gateways\/[A-Za-z0-9._-]+$/ },
 
   // Company-level reads used to discover work and context
   { method: "GET", path: /^\/api\/companies\/[^/]+$/ },

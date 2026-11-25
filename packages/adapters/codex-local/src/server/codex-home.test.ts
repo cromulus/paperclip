@@ -44,6 +44,8 @@ describe("routeManagedCodexMcpGatewaysThroughCallbackBridge", () => {
   it("puts only built-in loopback gateways on the run bridge with its token", () => {
     const gateways = [
       { name: "Paperclip projects", endpointPath: "http://127.0.0.1:3100/api/mcp/project-tools", bearerToken: "host-project" },
+      { name: "Paperclip runtime", endpointPath: "http://127.0.0.1:3100/mcp/runtime-tools", bearerToken: "host-runtime" },
+      { name: "Doktor", endpointPath: "http://127.0.0.1:3100/mcp/gateways/gw_doktor", bearerToken: "host-gateway" },
       { name: "External", endpointPath: "https://mcp.example.test/mcp", bearerToken: "external" },
     ];
     expect(routeManagedCodexMcpGatewaysThroughCallbackBridge({
@@ -51,11 +53,31 @@ describe("routeManagedCodexMcpGatewaysThroughCallbackBridge", () => {
       controllerApiUrl: "http://127.0.0.1:3100/api",
       bridgeApiUrl: "http://127.0.0.1:4310",
       bridgeToken: "per-run-bridge",
-      routes: [{ path: "/api/mcp/project-tools", headers: { authorization: "Bearer host-project" } }],
+      routes: [
+        { path: "/api/mcp/project-tools", headers: { authorization: "Bearer host-project" } },
+        { path: "/mcp/runtime-tools", headers: { authorization: "Bearer host-runtime" } },
+        { path: "/mcp/gateways/gw_doktor", headers: { authorization: "Bearer host-gateway" } },
+      ],
     })).toEqual([
       { name: "Paperclip projects", endpointPath: "http://127.0.0.1:4310/api/mcp/project-tools", bearerToken: "per-run-bridge" },
-      gateways[1],
+      { name: "Paperclip runtime", endpointPath: "http://127.0.0.1:4310/mcp/runtime-tools", bearerToken: "per-run-bridge" },
+      { name: "Doktor", endpointPath: "http://127.0.0.1:4310/mcp/gateways/gw_doktor", bearerToken: "per-run-bridge" },
+      gateways[3],
     ]);
+  });
+
+  it("does not treat stale API-prefixed runtime or gateway paths as Paperclip endpoints", () => {
+    const stale = [
+      { name: "Runtime alias", endpointPath: "http://127.0.0.1:3100/api/mcp/runtime-tools", bearerToken: "host-runtime" },
+      { name: "Gateway alias", endpointPath: "http://127.0.0.1:3100/api/mcp/gateways/gw_doktor", bearerToken: "host-gateway" },
+    ];
+    expect(() => routeManagedCodexMcpGatewaysThroughCallbackBridge({
+      gateways: stale,
+      controllerApiUrl: "http://127.0.0.1:3100/api",
+      bridgeApiUrl: "http://127.0.0.1:4310",
+      bridgeToken: "per-run-bridge",
+      routes: [],
+    })).toThrow("Remote Codex config contains an unapproved loopback MCP endpoint.");
   });
 
   it("fails closed when a loopback endpoint has no exact captured route", () => {
