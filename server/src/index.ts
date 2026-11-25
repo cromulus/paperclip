@@ -961,6 +961,7 @@ async function startServerWithDatabaseTeardown(
     allowedHostnames: config.allowedHostnames,
     bindHost: config.host,
     authPublicBaseUrl: config.authPublicBaseUrl,
+    webhookPublicBaseUrl: config.webhookPublicBaseUrl,
     chatWebhookPublicBaseUrl: config.chatWebhookPublicBaseUrl,
     authReady,
     companyDeletionEnabled: config.companyDeletionEnabled,

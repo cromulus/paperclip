@@ -81,6 +81,7 @@ import { queueIssueAssignmentWakeup, type IssueAssignmentWakeupDeps } from "./is
 import { logActivity } from "./activity-log.js";
 import type { PluginWorkerManager } from "./plugin-worker-manager.js";
 import { runtimePublicOrigin } from "./cloud-runtime-identity.js";
+import { parseWebhookPublicBaseUrl } from "../chat-webhook-public-url.js";
 
 const OPEN_ISSUE_STATUSES = ["backlog", "todo", "in_progress", "in_review", "blocked"];
 const LIVE_HEARTBEAT_RUN_STATUSES = ["queued", "running", "scheduled_retry"];
@@ -106,8 +107,14 @@ const WEEKDAY_INDEX: Record<string, number> = {
   Sat: 6,
 };
 
-export function routineWebhookUrl(publicId: string): string {
-  const baseUrl = runtimePublicOrigin() ?? process.env.PAPERCLIP_API_URL?.trim();
+export function routineWebhookUrl(
+  publicId: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const baseUrl =
+    parseWebhookPublicBaseUrl(env.PAPERCLIP_WEBHOOK_PUBLIC_URL) ??
+    runtimePublicOrigin(env) ??
+    env.PAPERCLIP_API_URL?.trim();
   if (!baseUrl) throw new Error("PAPERCLIP_API_URL is required to create a routine webhook");
   return `${baseUrl.replace(/\/+$/, "")}/api/routine-triggers/public/${publicId}/fire`;
 }
@@ -2245,7 +2252,7 @@ export function routineService(
         descriptionDocument,
         triggers: triggers.map((trigger) => ({
           ...trigger,
-          webhookUrl: trigger.kind === "webhook" && trigger.publicId ? routineWebhookUrl(trigger.publicId) : null,
+          webhookUrl: trigger.kind === "webhook" && trigger.publicId ? routineWebhookUrl(trigger.publicId, runtimeEnv) : null,
         })) as RoutineTrigger[],
         recentRuns,
         activeIssue,
@@ -2531,7 +2538,7 @@ export function routineService(
         const created = await createWebhookSecret(routine.companyId, routine.id, actor);
         secretId = created.secret.id;
         secretMaterial = {
-          webhookUrl: routineWebhookUrl(publicId),
+          webhookUrl: routineWebhookUrl(publicId, runtimeEnv),
           webhookSecret: created.secretValue,
         };
       }
@@ -2721,7 +2728,7 @@ export function routineService(
       return {
         trigger: trigger as RoutineTrigger,
         secretMaterial: {
-          webhookUrl: routineWebhookUrl(existing.publicId),
+          webhookUrl: routineWebhookUrl(existing.publicId, runtimeEnv),
           webhookSecret: secretValue,
         },
         revision,
@@ -2802,7 +2809,7 @@ export function routineService(
             secretId: created.secret.id,
             secretMaterial: {
               triggerId: trigger.id,
-              webhookUrl: routineWebhookUrl(publicId),
+              webhookUrl: routineWebhookUrl(publicId, runtimeEnv),
               webhookSecret: created.secretValue,
             },
           });

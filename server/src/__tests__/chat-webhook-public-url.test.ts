@@ -2,9 +2,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { deriveAuthTrustedOrigins } from "../auth/better-auth.js";
-import { parseChatWebhookPublicBaseUrl } from "../chat-webhook-public-url.js";
+import {
+  parseChatWebhookPublicBaseUrl,
+  parseWebhookPublicBaseUrl,
+} from "../chat-webhook-public-url.js";
 import { loadConfig } from "../config.js";
 import { boardMutationGuard } from "../middleware/board-mutation-guard.js";
+import { routineWebhookUrl } from "../services/routines.js";
 
 const missingConfigPath = path.join(
   os.tmpdir(),
@@ -15,6 +19,7 @@ function useIsolatedConfigEnvironment() {
   vi.stubEnv("PAPERCLIP_CONFIG", missingConfigPath);
   vi.stubEnv("PAPERCLIP_PUBLIC_URL", "");
   vi.stubEnv("PAPERCLIP_AUTH_PUBLIC_BASE_URL", "");
+  vi.stubEnv("PAPERCLIP_WEBHOOK_PUBLIC_URL", "");
   vi.stubEnv("PAPERCLIP_MANAGED_RUNTIME_PUBLIC_URL", "");
   vi.stubEnv("BETTER_AUTH_URL", "");
   vi.stubEnv("BETTER_AUTH_BASE_URL", "");
@@ -51,6 +56,32 @@ describe("chat webhook public URL", () => {
     }
   });
 
+  it("uses a validated generic webhook origin for routine trigger URLs", () => {
+    expect(
+      parseWebhookPublicBaseUrl(" https://hooks.example.test:8443/ "),
+    ).toBe("https://hooks.example.test:8443");
+    expect(
+      routineWebhookUrl("trigger-id", {
+        PAPERCLIP_WEBHOOK_PUBLIC_URL: "https://hooks.example.test",
+        PAPERCLIP_API_URL: "http://paperclip-internal:3100",
+      }),
+    ).toBe(
+      "https://hooks.example.test/api/routine-triggers/public/trigger-id/fire",
+    );
+    expect(
+      routineWebhookUrl("trigger-id", {
+        PAPERCLIP_API_URL: "http://paperclip-internal:3100/api",
+      }),
+    ).toBe(
+      "http://paperclip-internal:3100/api/routine-triggers/public/trigger-id/fire",
+    );
+    expect(() =>
+      routineWebhookUrl("trigger-id", {
+        PAPERCLIP_WEBHOOK_PUBLIC_URL: "https://hooks.example.test/path",
+      }),
+    ).toThrow("PAPERCLIP_WEBHOOK_PUBLIC_URL must be an HTTPS origin");
+  });
+
   it("fails invalid explicit configuration without echoing its value", () => {
     const canary = "synthetic-webhook-origin-secret";
     useIsolatedConfigEnvironment();
@@ -72,6 +103,27 @@ describe("chat webhook public URL", () => {
     expect(message).not.toContain(canary);
   });
 
+  it("fails invalid generic webhook configuration without echoing its value", () => {
+    const canary = "generic-webhook-origin-secret";
+    useIsolatedConfigEnvironment();
+    vi.stubEnv(
+      "PAPERCLIP_WEBHOOK_PUBLIC_URL",
+      `https://user:${canary}@hooks.example.test/private?token=${canary}`,
+    );
+
+    let message = "";
+    try {
+      loadConfig();
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(message).toContain(
+      "PAPERCLIP_WEBHOOK_PUBLIC_URL must be an HTTPS origin",
+    );
+    expect(message).not.toContain(canary);
+  });
+
   it("keeps webhook ingress separate from board auth and host trust", () => {
     useIsolatedConfigEnvironment();
     vi.stubEnv(
@@ -82,6 +134,7 @@ describe("chat webhook public URL", () => {
     const config = loadConfig();
 
     expect(config.chatWebhookPublicBaseUrl).toBe("https://hooks.example.test");
+    expect(config.webhookPublicBaseUrl).toBeUndefined();
     expect(config.authPublicBaseUrl).toBeUndefined();
     expect(config.allowedHostnames).not.toContain("hooks.example.test");
     expect(deriveAuthTrustedOrigins(config)).not.toContain(
@@ -134,6 +187,20 @@ describe("chat webhook public URL", () => {
 
     expect(config.authPublicBaseUrl).toBe("https://board.example.test");
     expect(config.chatWebhookPublicBaseUrl).toBe("https://hooks.example.test");
+    expect(config.allowedHostnames).toContain("board.example.test");
+    expect(config.allowedHostnames).not.toContain("hooks.example.test");
+  });
+
+  it("loads a generic webhook origin without changing the board auth origin", () => {
+    useIsolatedConfigEnvironment();
+    vi.stubEnv("PAPERCLIP_PUBLIC_URL", "https://board.example.test");
+    vi.stubEnv("PAPERCLIP_WEBHOOK_PUBLIC_URL", "https://hooks.example.test");
+
+    const config = loadConfig();
+
+    expect(config.authPublicBaseUrl).toBe("https://board.example.test");
+    expect(config.webhookPublicBaseUrl).toBe("https://hooks.example.test");
+    expect(config.chatWebhookPublicBaseUrl).toBeUndefined();
     expect(config.allowedHostnames).toContain("board.example.test");
     expect(config.allowedHostnames).not.toContain("hooks.example.test");
   });

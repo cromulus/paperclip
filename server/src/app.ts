@@ -526,6 +526,7 @@ export async function createApp(
     allowedHostnames: string[];
     bindHost: string;
     authPublicBaseUrl?: string;
+    webhookPublicBaseUrl?: string;
     chatWebhookPublicBaseUrl?: string;
     authReady: boolean;
     companyDeletionEnabled: boolean;
@@ -648,7 +649,8 @@ export async function createApp(
       && ["127.0.0.1", "localhost", "::1"].includes(opts.bindHost ?? "")
       && Number.isInteger(opts.serverPort) && opts.serverPort! > 0
       ? `http://${opts.bindHost === "::1" ? "[::1]" : opts.bindHost}:${opts.serverPort}` : null,
-    webhookPublicBaseUrl: opts.chatWebhookPublicBaseUrl,
+    webhookPublicBaseUrl:
+      opts.chatWebhookPublicBaseUrl ?? opts.webhookPublicBaseUrl,
     resolveNativeQuestion: (interaction) =>
       deliverNativeQuestionResponse(db, interaction),
     storage: opts.storageService,
@@ -682,7 +684,10 @@ export async function createApp(
     isBackgroundWorkEnabled: () => !isWarmStandby() && !isIdleTaskDrainActive(),
     heartbeat: connectionIntentHeartbeat,
     storage: opts.storageService,
-    publicBaseUrl: opts.chatWebhookPublicBaseUrl ?? opts.authPublicBaseUrl,
+    publicBaseUrl:
+      opts.webhookPublicBaseUrl ??
+      opts.chatWebhookPublicBaseUrl ??
+      opts.authPublicBaseUrl,
   });
   app.use(emailWebhookRoutes(emailChannels));
   app.locals.fastResponses = fastResponseService(db, {

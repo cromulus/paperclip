@@ -1,5 +1,8 @@
 import { readConfigFile, resolveDeploymentMode } from "./config-file.js";
-import { parseChatWebhookPublicBaseUrl } from "./chat-webhook-public-url.js";
+import {
+  parseChatWebhookPublicBaseUrl,
+  parseWebhookPublicBaseUrl,
+} from "./chat-webhook-public-url.js";
 import { execFileSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
@@ -68,6 +71,7 @@ export interface Config {
   allowedHostnames: string[];
   authBaseUrlMode: AuthBaseUrlMode;
   authPublicBaseUrl: string | undefined;
+  webhookPublicBaseUrl: string | undefined;
   chatWebhookPublicBaseUrl: string | undefined;
   authDisableSignUp: boolean;
   databaseMode: DatabaseMode;
@@ -374,6 +378,9 @@ export function loadConfig(): Config {
     allowedHostnames,
     authBaseUrlMode,
     authPublicBaseUrl,
+    webhookPublicBaseUrl: parseWebhookPublicBaseUrl(
+      process.env.PAPERCLIP_WEBHOOK_PUBLIC_URL,
+    ),
     chatWebhookPublicBaseUrl: parseChatWebhookPublicBaseUrl(
       process.env.PAPERCLIP_CHAT_WEBHOOK_PUBLIC_URL,
     ),
