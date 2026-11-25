@@ -206,7 +206,7 @@ export function googleWorkspaceApiClient(headers: Record<string, string>, reques
     throw failure(422, "google_workspace_credential_missing", "Reconnect Google Workspace to restore access.");
   }
   const { send } = nativeRestSender({ provider: "Google Workspace", code: "google_workspace", authorization, request, signal, deadlineAt,
-    deniedMessage: "Google Workspace denied access. Reconnect and grant the specific service scope required for this action." });
+    deniedMessage: "Google denied access. Check that this API is enabled in your Google Cloud project and that the connected account granted the required permission." });
 
   async function execute(toolName: string, input: Record<string, unknown>): Promise<unknown> {
     const operation = byName.get(toolName);

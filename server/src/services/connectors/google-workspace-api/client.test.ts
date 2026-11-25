@@ -92,6 +92,14 @@ describe("Google Workspace native REST catalog", () => {
     expect(p.calls).toHaveLength(0);
   });
 
+  it("makes provider 403s actionable without telling users to reauthorize on API enablement errors", async () => {
+    const p = requestRecorder(jsonResponse({ error: { status: "PERMISSION_DENIED", message: "Service disabled" } }, 403));
+    await expect(call("gmail__list_labels", {}, [scopes.gmailRead], p.request)).rejects.toMatchObject({
+      status: 403,
+      message: "Google denied access. Check that this API is enabled in your Google Cloud project and that the connected account granted the required permission.",
+    });
+  });
+
   it("creates an unsent RFC 2822 draft and never calls Gmail send", async () => {
     const p = requestRecorder(jsonResponse({ id: "draft-1", message: { id: "message-1" } }));
     await call("gmail__create_draft", { to: ["alex@example.com"], subject: "Quarterly plan ✓", bodyText: "A draft only." }, [scopes.gmailCompose], p.request);
