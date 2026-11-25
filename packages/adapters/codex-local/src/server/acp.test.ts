@@ -439,32 +439,39 @@ describe("codex_local ACP lane", () => {
     });
   });
 
-  it("reports unavailable ACP for non-sandbox remote auto runs", async () => {
+  it("explains that SSH needs a bidirectional ACP process session and keeps the CLI opt-in", async () => {
     setNodeVersion("v24.11.0");
-    await expect(
-      resolveCodexExecutionEngineForRun({
-        config: {},
-        executionTarget: {
-          kind: "remote",
-          transport: "ssh",
-          remoteCwd: "/work",
-          spec: {
-            host: "127.0.0.1",
-            port: 22,
-            username: "fixture",
-            remoteCwd: "/work",
-            remoteWorkspacePath: "/work",
-            privateKey: null,
-            knownHosts: null,
-            strictHostKeyChecking: true,
-          },
-        },
-      }),
-    ).resolves.toMatchObject({
+    const executionTarget = {
+      kind: "remote" as const,
+      transport: "ssh" as const,
+      remoteCwd: "/work",
+      spec: {
+        host: "127.0.0.1",
+        port: 22,
+        username: "fixture",
+        remoteCwd: "/work",
+        remoteWorkspacePath: "/work",
+        privateKey: null,
+        knownHosts: null,
+        strictHostKeyChecking: true,
+      },
+    };
+    const defaultEngine = await resolveCodexExecutionEngineForRun({
+      config: {},
+      executionTarget,
+    });
+    expect(defaultEngine).toMatchObject({
       engine: "acp",
       explicit: false,
-      unavailableReason: expect.stringContaining("sandbox remote targets only"),
+      unavailableReason: expect.stringContaining("SSH provides one-shot commands"),
     });
+    expect(defaultEngine.unavailableReason).toContain("persistent bidirectional process session");
+    expect(defaultEngine.unavailableReason).toContain("explicitly set engine=cli");
+
+    await expect(resolveCodexExecutionEngineForRun({
+      config: { engine: "cli" },
+      executionTarget,
+    })).resolves.toEqual({ engine: "cli", explicit: true });
   });
 
   it("enables workspace networking for ACP without changing other env settings", () => {

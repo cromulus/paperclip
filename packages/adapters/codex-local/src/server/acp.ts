@@ -614,6 +614,9 @@ async function codexAcpUnavailableReason(
     if (target.transport === "sandbox") {
       return "Codex ACP requires a bidirectional remote process target; this sandbox exposes only one-shot command execution.";
     }
+    if (target.transport === "ssh") {
+      return "Codex ACP is not supported on SSH targets yet: SSH provides one-shot commands, while ACP requires a persistent bidirectional process session. Use a sandbox environment with a supported process-session bridge.";
+    }
     return "Codex ACP supports sandbox remote targets only; this run targets a non-sandbox remote environment.";
   }
   if (!nodeVersionMeetsCodexAcpMinimum()) {
