@@ -9,11 +9,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IssueLinkQuicklook, QUICKLOOK_CONTENT_CLASS, quicklookAlignOffset } from "./IssueLinkQuicklook";
 
 const mockIssuesApiGet = vi.hoisted(() => vi.fn());
+const mockLoadIssueDetailPage = vi.hoisted(() => vi.fn(() => Promise.resolve({ default: () => null })));
 
 vi.mock("@/api/issues", () => ({
   issuesApi: {
     get: mockIssuesApiGet,
   },
+}));
+
+vi.mock("@/lib/issue-detail-prefetch", () => ({
+  loadIssueDetailPage: mockLoadIssueDetailPage,
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -83,6 +88,7 @@ describe("IssueLinkQuicklook", () => {
       },
     });
     mockIssuesApiGet.mockResolvedValue(createIssue());
+    mockLoadIssueDetailPage.mockClear();
   });
 
   afterEach(() => {
@@ -159,6 +165,16 @@ describe("IssueLinkQuicklook", () => {
     });
     return container.querySelector("a") as HTMLAnchorElement;
   }
+
+  it("prefetches the issue detail route on link intent", () => {
+    const trigger = renderQuicklook();
+
+    act(() => {
+      trigger.focus();
+    });
+
+    expect(mockLoadIssueDetailPage).toHaveBeenCalledTimes(1);
+  });
 
   function movePointerTo(x: number, y: number) {
     act(() => {

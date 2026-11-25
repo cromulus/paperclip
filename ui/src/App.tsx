@@ -1,4 +1,3 @@
-import { AgentChats } from "./pages/AgentChats";
 import { lazy, Suspense, useEffect, type ReactNode } from "react";
 import type { ToolConnectionCredentialSource } from "@paperclipai/shared";
 import { Navigate, Outlet, Route, Routes, useActiveCompanyPrefix, useLocation, useParams } from "@/lib/router";
@@ -27,6 +26,7 @@ import { useChatConnectorsEnabled } from "./hooks/useChatConnectorsEnabled";
 import { canEnterAppsConnect } from "./pages/apps/app-connect-policy";
 import { NotFoundPage } from "./pages/NotFound";
 import { useCompany } from "./context/CompanyContext";
+import { loadIssueDetailPage } from "./lib/issue-detail-prefetch";
 import { useDialogActions, useDialogState } from "./context/DialogContext";
 import { loadLastInboxTab } from "./lib/inbox";
 import { TASK_VIEW_PARAM, taskViewForInboxTab, type TaskViewKey } from "./lib/task-views";
@@ -53,9 +53,9 @@ const AssistantConnectionsPage = lazy(() => import("./pages/McpConnect").then((m
 const ProductionLayout = lazy(() => import("./components/Layout.production").then((module) => ({ default: module.Layout })));
 
 const TaskChatLab = lazy(() => import("./pages/TaskChatLab").then((module) => ({ default: module.TaskChatLab })));
+const AgentChats = lazy(() => import("./pages/AgentChats").then((module) => ({ default: module.AgentChats })));
 const Issues = lazy(() => import("./pages/Issues").then((module) => ({ default: module.Issues })));
-const loadIssueDetail = () => import("./pages/IssueDetail").then((module) => ({ default: module.IssueDetail }));
-const IssueDetail = lazy(loadIssueDetail);
+const IssueDetail = lazy(loadIssueDetailPage);
 const AgentChat = lazy(() => import("./pages/AgentChat").then((module) => ({ default: module.AgentChat })));
 const IssueChatLongThreadPerf = lazy(() => import("./pages/IssueChatLongThreadPerf").then((module) => ({ default: module.IssueChatLongThreadPerf })));
 const Inbox = lazy(() => import("./pages/Inbox").then((module) => ({ default: module.Inbox })));
@@ -760,12 +760,6 @@ export function App() {
   const { pathname } = useLocation();
   const { enabled: streamlinedUiEnabled, loaded: streamlinedUiLoaded } = useStreamlinedUiEnabled();
   const { enabled: combinedInboxTasksEnabled } = useCombinedInboxTasksEnabled();
-  useEffect(() => {
-    if (/^\/[^/]+\/(issues|tasks|inbox)(?:\/|$)/.test(pathname)) {
-      void loadIssueDetail().catch(() => undefined);
-    }
-  }, [pathname]);
-
   return (
     <>
       <Suspense fallback={<PaperclipLoading />}><Routes>

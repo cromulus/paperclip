@@ -211,6 +211,8 @@ describe("IssueThreadInteractionCard", () => {
       currentUserId: issueThreadInteractionFixtureMeta.currentUserId,
     });
 
+    await vi.waitFor(() => expect(host.querySelector('[data-testid="connection-intent-actions"]')).toBeTruthy(), { timeout: 3000 });
+
     expect(host.querySelector('[data-testid="connection-intent-actions"]')).toBeTruthy();
     expect(host.textContent).toContain("Connect");
     expect(host.textContent).toContain("Not now");
@@ -1580,12 +1582,13 @@ describe("IssueThreadInteractionCard connection-intent card", () => {
 
   ;
 
-  it("shows another viewer only who it is waiting for", () => {
+  it("shows another viewer only who it is waiting for", async () => {
     const host = renderCard({
       interaction: pendingConnectionIntentInteraction,
       currentUserId: "user-someone-else",
       userLabelMap: USER_LABELS,
     });
+    await vi.waitFor(() => expect(host.querySelector('[data-testid="connection-intent-waiting"]')).toBeTruthy());
     expect(host.querySelector('[data-testid="connection-intent-waiting"]')?.textContent)
       .toContain("Waiting for Carol");
     expect(host.querySelector('[data-testid="connection-intent-actions"]')).toBeNull();
@@ -1594,11 +1597,12 @@ describe("IssueThreadInteractionCard connection-intent card", () => {
     expect(host.textContent).not.toContain("Not now");
   });
 
-  it("renders retry and connected terminal states without generic confirmation actions", () => {
+  it("renders retry and connected terminal states without generic confirmation actions", async () => {
     const retry = renderCard({
       interaction: retryConnectionIntentInteraction,
       currentUserId: issueThreadInteractionFixtureMeta.currentUserId,
     });
+    await vi.waitFor(() => expect(retry.textContent).toContain("Authorization didn’t finish"));
     expect(retry.textContent).toContain("Authorization didn’t finish");
     expect(retry.textContent).toContain("Try again");
 
@@ -1609,6 +1613,7 @@ describe("IssueThreadInteractionCard connection-intent card", () => {
       interaction: connectedConnectionIntentInteraction,
       currentUserId: issueThreadInteractionFixtureMeta.currentUserId,
     });
+    await vi.waitFor(() => expect(connected.querySelector('[data-testid="connection-intent-terminal"]')).toBeTruthy());
     expect(connected.querySelector('[data-testid="connection-intent-terminal"]')?.textContent)
       .toContain("Notion connected");
     expect(connected.textContent).not.toContain("Approve");

@@ -5,6 +5,7 @@ import type { Issue } from "@paperclipai/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { timeAgo } from "@/lib/timeAgo";
 import { createIssueDetailPath, withIssueDetailHeaderSeed } from "@/lib/issueDetailBreadcrumb";
+import { loadIssueDetailPage } from "@/lib/issue-detail-prefetch";
 import {
   getIssueDetailQueryOptions,
   ISSUE_DETAIL_STALE_TIME_MS,
@@ -362,6 +363,7 @@ export const IssueLinkQuicklook = React.forwardRef<
 
   const detailPath = createIssueDetailPath(issuePathId);
   const handlePrefetch = React.useCallback(() => {
+    void loadIssueDetailPage().catch(() => undefined);
     void prefetchIssueDetailForNavigation(queryClient, issuePathId, { issue: issuePrefetch });
   }, [issuePathId, issuePrefetch, queryClient]);
   const link = (

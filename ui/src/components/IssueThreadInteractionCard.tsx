@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, lazy, Suspense, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Agent } from "@paperclipai/shared";
 import { AlertTriangle, ArrowUpRight, Bot, Check, CheckCircle2, ChevronDown, ChevronRight, CircleDashed, Clock, ExternalLink, FileText, GitBranch, ImagePlus, KeyRound, Loader2, MessageSquareQuote, MinusCircle, ShieldAlert, ThumbsUp, TriangleAlert, Wrench, X, XCircle } from "lucide-react";
 import { Link } from "@/lib/router";
@@ -45,8 +45,11 @@ import { Badge } from "@/components/ui/badge";
 import { ProposalJustification } from "../pages/secrets/proposal-review";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./ui/dropdown-menu";
 import { AppLogo } from "@/pages/apps/AppLogo";
-import { ConnectionIntentInteractionBody } from "@/features/connections/ConnectionIntentInteractionBody";
 import { QuestionForm } from "./task-chat/QuestionForm";
+
+const ConnectionIntentInteractionBody = lazy(() =>
+  import("@/features/connections/ConnectionIntentInteractionBody").then((module) => ({ default: module.ConnectionIntentInteractionBody })),
+);
 
 const OTHER_ANSWER_ID = "__paperclip_other__";
 
@@ -3737,11 +3740,13 @@ export function IssueThreadInteractionCard({
   if (interaction.kind === "connection_intent" && interaction.payload.accessRequest) {
     return (
       <div id={`interaction-${interaction.id}`}>
-        <ConnectionIntentInteractionBody
-          interaction={interaction}
-          currentUserId={currentUserId}
-          addresseeLabel={addresseeLabel ?? "the addressed person"}
-        />
+        <Suspense fallback={<div className="text-sm text-muted-foreground">Loading connection request…</div>}>
+          <ConnectionIntentInteractionBody
+            interaction={interaction}
+            currentUserId={currentUserId}
+            addresseeLabel={addresseeLabel ?? "the addressed person"}
+          />
+        </Suspense>
       </div>
     );
   }

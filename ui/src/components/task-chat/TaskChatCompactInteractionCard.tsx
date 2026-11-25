@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useEffect,
   useMemo,
   useState,
@@ -28,7 +30,6 @@ import type {
 } from "@paperclipai/adapter-utils";
 import { InteractionPreparationNotice } from "@/components/InteractionPreparationNotice";
 import { IssueThreadInteractionCard } from "@/components/IssueThreadInteractionCard";
-import { ConnectionIntentInteractionBody } from "@/features/connections/ConnectionIntentInteractionBody";
 import { MarkdownBody } from "@/components/MarkdownBody";
 import type { MentionOption } from "@/components/MarkdownEditor";
 import { Button } from "@/components/ui/button";
@@ -67,6 +68,10 @@ import {
 } from "./TaskChatComposerTakeoverContext";
 import { TaskChatPlanPreviewCard } from "./TaskChatPlanPreviewCard";
 import { TaskChatRichInput } from "./TaskChatRichInput";
+
+const ConnectionIntentInteractionBody = lazy(() =>
+  import("@/features/connections/ConnectionIntentInteractionBody").then((module) => ({ default: module.ConnectionIntentInteractionBody })),
+);
 
 const TAKEOVER_TEXTAREA_CLASS =
   "min-h-16 resize-y border-0 bg-muted/35 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0";
@@ -1929,12 +1934,14 @@ export function TaskChatCompactInteractionCard({
 
   if (interaction.kind === "connection_intent") {
     return (
+      <Suspense fallback={<div className="text-sm text-muted-foreground">Loading connection request…</div>}>
         <ConnectionIntentInteractionBody
           interaction={interaction}
           currentUserId={currentUserId}
           addresseeLabel={addresseeLabel ?? "the addressed user"}
           addresseeName={interaction.addresseeUserId ? userLabelMap?.get(interaction.addresseeUserId) : undefined}
         />
+      </Suspense>
     );
   }
 
