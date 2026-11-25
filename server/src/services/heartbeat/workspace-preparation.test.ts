@@ -1540,6 +1540,7 @@ describe.skipIf(!support.supported && !externalDatabaseUrl)("heartbeat workspace
     await db.update(agents).set({ adapterType: "paperclip_runner" }).where(eq(agents.id, input.agent.id));
     const pluginEnvironment = await environmentService(db).create(input.agent.companyId, {
       name: `Plugin task dir ${issue.id}`,
+      ownerAgentId: null,
       driver: "plugin",
       status: "active",
       envVars: {},
