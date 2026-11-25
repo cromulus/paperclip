@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentChatBootstrapResponse } from "@paperclipai/shared";
 import { agentChatsApi } from "@/api/agentChats";
+import { issuesApi } from "@/api/issues";
 import { queryKeys } from "@/lib/queryKeys";
 import { AgentChat } from "./AgentChat";
 import { shouldRefreshAgentChatForLiveEvent } from "./AgentChatFastPath";
@@ -19,6 +20,7 @@ vi.mock("@/context/CompanyContext", () => ({ useCompany: () => ({ selectedCompan
 vi.mock("@/hooks/useAgentChatEnabled", () => ({ useAgentChatEnabled: () => ({ enabled: true, loaded: true }) }));
 vi.mock("@/api/auth", () => ({ authApi: { getSession: async () => ({ user: { id: state.userId } }) } }));
 vi.mock("@/api/agentChats", () => ({ agentChatsApi: { list: vi.fn(), get: vi.fn(), ensure: vi.fn(), bootstrap: vi.fn() } }));
+vi.mock("@/api/issues", () => ({ issuesApi: { addComment: vi.fn() } }));
 vi.mock("@/context/LiveUpdatesProvider", () => ({ useCompanyLiveEvent: (handler: typeof state.liveHandler) => { state.liveHandler = handler; } }));
 vi.mock("@/components/AgentAvatar", () => ({ AgentAvatar: () => null }));
 vi.mock("@/components/task-chat/TaskChatThreadView", () => ({
@@ -60,6 +62,7 @@ beforeEach(() => {
   state.companyId = "company-a";
   state.userId = "user-a";
   state.liveHandler = null;
+  sessionStorage.clear();
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   vi.mocked(agentChatsApi.bootstrap).mockImplementation(() => new Promise(() => {}));
   client.setQueryData(queryKeys.auth.session, { user: { id: "user-a" } });
@@ -145,5 +148,34 @@ describe("lightweight Agent Chat route", () => {
     await render();
     expect(container.textContent).not.toContain("CoS cached note");
     expect(container.textContent).not.toContain("Finance cached note");
+  });
+
+  it("locks the composer during guard verification and preserves the reviewed draft", async () => {
+    let resolveGuard!: (value: AgentChatBootstrapResponse) => void;
+    await render();
+    vi.mocked(agentChatsApi.bootstrap).mockImplementationOnce(() => new Promise(resolve => { resolveGuard = resolve; }));
+
+    const textarea = container.querySelector("textarea")!;
+    const valueSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+    await act(async () => {
+      valueSetter.call(textarea, "Please review this change");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(textarea.value).toBe("Please review this change");
+
+    await act(async () => {
+      container.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    expect(textarea.disabled).toBe(true);
+
+    const accepted = { ...bootstrap("cos", "CoS cached note").messages[0], id: "accepted-message", body: "Please review this change" };
+    vi.mocked(issuesApi.addComment).mockResolvedValue(accepted as never);
+    await act(async () => {
+      resolveGuard(bootstrap("cos", "CoS cached note"));
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    expect(textarea.disabled).toBe(false);
+    expect(textarea.value).toBe("");
+    expect(issuesApi.addComment).toHaveBeenCalledOnce();
   });
 });

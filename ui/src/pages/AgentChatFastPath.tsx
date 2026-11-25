@@ -53,6 +53,7 @@ export function AgentChatFastPath({ bootstrap, companyId, userId, queryKey, isFe
   const chat = bootstrap.chat;
   const draftKey = "paperclip:agent-chat-draft:" + companyId + ":" + userId + ":" + agent.id;
   const [body, setBody] = useState(() => loadDraft(draftKey));
+  const bodyRef = useRef(body);
   const [submitting, setSubmitting] = useState(false);
   const [olderPages, setOlderPages] = useState<IssueComment[][]>([]);
   const [olderCursor, setOlderCursor] = useState(bootstrap.page.olderCursor);
@@ -153,7 +154,8 @@ export function AgentChatFastPath({ bootstrap, companyId, userId, queryKey, isFe
   }, [queryClient, queryKey]);
 
   const submit = useCallback(async () => {
-    const submittedBody = (draftAttempt ? loadDraft(draftKey) : body).trim();
+    const draftAtSubmit = bodyRef.current;
+    const submittedBody = (draftAttempt ? loadDraft(draftKey) : draftAtSubmit).trim();
     if (submitLock.current) return;
     if (!submittedBody) return;
     const attemptId = draftAttempt?.attemptId ?? crypto.randomUUID();
@@ -202,9 +204,11 @@ export function AgentChatFastPath({ bootstrap, companyId, userId, queryKey, isFe
         }
       }
       const accepted = await issuesApi.addComment(issueId, submittedBody, undefined, undefined, undefined, attemptId);
-      settleDraftSubmission(draftKey, attemptId, "");
+      const nextDraft = bodyRef.current === draftAtSubmit ? "" : bodyRef.current;
+      settleDraftSubmission(draftKey, attemptId, nextDraft);
       setDraftAttempt(null);
-      setBody("");
+      bodyRef.current = nextDraft;
+      setBody(nextDraft);
       setOptimisticComment(null);
       updateBootstrapMessages(accepted, ensuredIssue);
       setSubmitError(null);
@@ -238,11 +242,13 @@ export function AgentChatFastPath({ bootstrap, companyId, userId, queryKey, isFe
     if (accepted) {
       settleDraftSubmission(draftKey, attemptId, "");
       setDraftAttempt(null);
+      bodyRef.current = "";
       setBody("");
       setOptimisticComment(null);
       updateBootstrapMessages(accepted);
       return;
     }
+    bodyRef.current = submittedBody;
     setBody(submittedBody);
     await submit();
   }, [agent.id, companyId, draftAttempt?.attemptId, draftKey, submit, updateBootstrapMessages]);
@@ -330,10 +336,10 @@ export function AgentChatFastPath({ bootstrap, companyId, userId, queryKey, isFe
       <form className="rounded-xl border border-input bg-card p-2" onSubmit={(event) => { event.preventDefault(); void submit(); }} aria-label={"Message " + agent.name}>
         <Textarea
           value={body}
-          onChange={(event) => { setBody(event.target.value); saveDraft(draftKey, event.target.value); }}
+          onChange={(event) => { bodyRef.current = event.target.value; setBody(event.target.value); saveDraft(draftKey, event.target.value); }}
           placeholder={draftAttempt ? "Checking an earlier message before allowing edits…" : "Message " + agent.name + "…"}
           aria-label={"Message " + agent.name}
-          disabled={!!draftAttempt}
+          disabled={submitting || !!draftAttempt}
           rows={2}
           className="max-h-40 min-h-12 resize-y border-0 bg-transparent shadow-none focus-visible:ring-0"
           onKeyDown={(event) => {
