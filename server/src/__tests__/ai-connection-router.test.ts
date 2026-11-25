@@ -455,7 +455,7 @@ describe("durable, authorized connection routing", () => {
     const original = await instanceSettingsService(db).getExperimental();
     await instanceSettingsService(db).updateExperimental({ enableAiConnectionRouters: true, enableNativeRunner: true, enableEnvironments: true, enableWorktreeRunExecution: true });
     const pool = await makePool({ members: [members[0]!] });
-    const environment = await environmentService(db).create(companyId, { name: `SSH routing fixture ${useHostAuth} ${nativeHomeMode}`, driver: "ssh", status: "active", envVars: {}, config: {
+    const environment = await environmentService(db).create(companyId, { ownerAgentId: null, name: `SSH routing fixture ${useHostAuth} ${nativeHomeMode}`, driver: "ssh", status: "active", envVars: {}, config: {
       host: "ssh.example.test", username: "fixture", remoteWorkspacePath: "/workspace", ...(useHostAuth === undefined ? {} : { useHostAuth }),
     } });
     const configured = { provider: "acpx", acpxAgent: "claude", model: "fixture-host-model", ...(nativeHomeMode ? { homeMode: nativeHomeMode } : {}) };

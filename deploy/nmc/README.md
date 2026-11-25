@@ -12,6 +12,11 @@ agent-owned execution environments, routine claim contention, and remote MCP
 callback routing. Upstream now supplies the chat/sidebar loading improvements.
 Runtime secrets and deployment policy values remain in Dokploy.
 
+Build from a clean committed checkout with directories at 0755 and regular
+files at 0644 (executable files at 0755). When exporting with `git archive`,
+extract with umask 022 or remove group/other write bits before building. The
+Runner verifies ownership and permissions of its pinned provider manifests.
+
 Build from a clean committed checkout:
 
 ```sh

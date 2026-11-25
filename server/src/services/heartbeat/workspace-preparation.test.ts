@@ -601,7 +601,7 @@ describe.skipIf(!support.supported && !externalDatabaseUrl)("heartbeat workspace
     input.task.issueRef = { ...issue, projectId: null, projectWorkspaceId: null };
     input.task.context = { issueId: issue.id };
     input.policy.useIsolatedTaskDirectory = true;
-    const environment = await environmentService(db).create(input.agent.companyId, { name: `SSH ${adapterType}`, driver: "ssh", status: "active", envVars: {},
+    const environment = await environmentService(db).create(input.agent.companyId, { ownerAgentId: null, name: `SSH ${adapterType}`, driver: "ssh", status: "active", envVars: {},
       config: { host: "fixture.invalid", port: 22, username: "fixture", remoteWorkspacePath: "/home/fixture/work", useHostAuth: false } });
     input.environment.selectedEnvironmentId = environment.id;
     input.environment.selectedEnvironmentForConfig = environment;
@@ -1379,7 +1379,7 @@ describe.skipIf(!support.supported && !externalDatabaseUrl)("heartbeat workspace
         displayName: "Tasks", description: "Tasks", author: "Test", categories: ["workspace"],
         capabilities: ["environment.drivers.register"], entrypoints: { worker: "./worker.js" },
         environmentDrivers: [{ driverKey: "tasks", displayName: "Task VM", configSchema: { type: "object" }, supportsTasks: true, freshWorkspaceVersion: 1 }] } });
-    const environment = await environmentService(db).create({ name: `Task computer ${issue.id}`, driver: "plugin", status: "active", envVars: {}, config: { pluginKey, driverKey: "tasks" } });
+    const environment = await environmentService(db).create({ ownerAgentId: null, name: `Task computer ${issue.id}`, driver: "plugin", status: "active", envVars: {}, config: { pluginKey, driverKey: "tasks" } });
     input.agent = { ...input.agent, adapterType: "paperclip_runner", defaultEnvironmentId: environment.id };
     input.environment.selectedEnvironmentForConfig = await environmentService(db).getById(environment.id);
     input.policy.requestedExecutionWorkspaceMode = input.policy.effectiveExecutionWorkspaceMode = "isolated_workspace";

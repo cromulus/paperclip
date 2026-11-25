@@ -182,6 +182,7 @@ describe("probeEnvironment", () => {
       envVars: {},
       name: "Local",
       description: null,
+      ownerAgentId: null,
       driver: "local",
       status: "active",
       config: {},
@@ -206,6 +207,7 @@ describe("probeEnvironment", () => {
       envVars: {},
       name: "SSH Fixture",
       description: null,
+      ownerAgentId: null,
       driver: "ssh",
       status: "active",
       config: {
@@ -244,6 +246,7 @@ describe("probeEnvironment", () => {
       envVars: {},
       name: "Fake Sandbox",
       description: null,
+      ownerAgentId: null,
       driver: "sandbox",
       status: "active",
       config: {
@@ -286,6 +289,7 @@ describe("probeEnvironment", () => {
       envVars: {},
       name: "Fake Plugin Sandbox",
       description: null,
+      ownerAgentId: null,
       driver: "sandbox",
       status: "active",
       config: {
@@ -352,6 +356,7 @@ describe("probeEnvironment", () => {
       envVars: {},
       name: "Daytona",
       description: null,
+      ownerAgentId: null,
       driver: "sandbox" as const,
       status: "active" as const,
       config: {
@@ -414,6 +419,7 @@ describe("probeEnvironment", () => {
       envVars: {},
       name: "Plugin Sandbox",
       description: null,
+      ownerAgentId: null,
       driver: "plugin",
       status: "active",
       config: {
@@ -454,6 +460,7 @@ describe("probeEnvironment", () => {
       envVars: {},
       name: "SSH Fixture",
       description: null,
+      ownerAgentId: null,
       driver: "ssh",
       status: "active",
       config: {

@@ -146,13 +146,13 @@ describeEmbeddedPostgres("environmentService leases", () => {
   }
 
   it("clears user metadata to null when no private platform proof exists", async () => {
-    const created = await svc.create({ name: "User metadata clear", driver: "sandbox", status: "active", envVars: {}, config: { provider: "daytona" }, metadata: { userNote: "remove" } });
+    const created = await svc.create({ ownerAgentId: null, name: "User metadata clear", driver: "sandbox", status: "active", envVars: {}, config: { provider: "daytona" }, metadata: { userNote: "remove" } });
     expect((await svc.update(created.id, { metadata: null }))?.metadata).toBeNull();
   });
 
   it("persists the immutable agent owner when creating an environment", async () => {
     const ownerAgentId = randomUUID();
-    const created = await svc.create({
+    const created = await svc.create({ status: "active", envVars: {},
       name: "Agent-bound SSH",
       driver: "ssh",
       ownerAgentId,
@@ -175,7 +175,7 @@ describeEmbeddedPostgres("environmentService leases", () => {
       const config = { provider: "daytona", image: `registry.example.test/runtime@sha256:${"a".repeat(64)}` };
       const staleProof = { v: 1, marker: "old" };
       const freshProof = { v: 1, marker: "new" };
-      const created = await svc.create({ name: "Concurrent metadata", driver: "sandbox", status: "active", envVars: {}, config,
+      const created = await svc.create({ ownerAgentId: null, name: "Concurrent metadata", driver: "sandbox", status: "active", envVars: {}, config,
         metadata: { userNote: "old", _paperclipManagedArchiveToken: "old-archive-token",
           [SANDBOX_PLATFORM_PROBE_METADATA_KEY]: { [companyId]: staleProof } } });
       const patches: Record<typeof operation, UpdateEnvironment> = {
@@ -1674,7 +1674,7 @@ describeEmbeddedPostgres("environmentService leases", () => {
 
   it.each([false, true])("repairs legacy unbound managed stock only under the trusted platform contract (%s)", async (platformFullyManaged) => {
     const companyId = await seedCompany();
-    const legacy = await svc.create({
+    const legacy = await svc.create({ ownerAgentId: null,
       name: "Legacy managed sandbox",
       driver: "sandbox",
       status: "active",
@@ -1749,7 +1749,7 @@ describeEmbeddedPostgres("environmentService leases", () => {
   });
 
   it("preserves a forged unbound archive through repeated reconciliation and later company bindings", async () => {
-    const archived = await svc.create({
+    const archived = await svc.create({ ownerAgentId: null,
       name: "Managed sandbox",
       driver: "sandbox",
       status: "archived",
@@ -2059,7 +2059,7 @@ describeEmbeddedPostgres("environmentService leases", () => {
 
   it("preserves an existing unmanaged sandbox row holding the desired name", async () => {
     const companyId = await seedCompany();
-    const handMade = await svc.create({
+    const handMade = await svc.create({ ownerAgentId: null,
       name: "Daytona",
       driver: "sandbox",
       status: "active",
@@ -2092,7 +2092,7 @@ describeEmbeddedPostgres("environmentService leases", () => {
 
   it.each([false, true])("platformFullyManaged never adopts an unmarked same-name sandbox row (%s)", async (hasCompany) => {
     const companyId = hasCompany ? await seedCompany() : undefined;
-    const handMade = await svc.create({
+    const handMade = await svc.create({ ownerAgentId: null,
       name: "Daytona",
       driver: "sandbox",
       status: "active",
@@ -2128,7 +2128,7 @@ describeEmbeddedPostgres("environmentService leases", () => {
 
   it("keeps the current name when the desired name belongs to another row", async () => {
     const companyId = await seedCompany();
-    await svc.create({
+    await svc.create({ ownerAgentId: null,
       name: "Daytona",
       driver: "ssh",
       status: "active",
@@ -2158,7 +2158,7 @@ describeEmbeddedPostgres("environmentService leases", () => {
   it("returns a conflict when creating a second environment with the same name", async () => {
     await seedEnvironment();
 
-    await svc.create({
+    await svc.create({ ownerAgentId: null,
       name: "Shared Fixture",
       driver: "ssh",
       status: "active",
@@ -2171,7 +2171,7 @@ describeEmbeddedPostgres("environmentService leases", () => {
       },
     });
 
-    await expect(svc.create({
+    await expect(svc.create({ ownerAgentId: null,
       name: "Shared Fixture",
       driver: "sandbox",
       status: "active",
@@ -2291,7 +2291,7 @@ describeEmbeddedPostgres("environmentService leases", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    await svc.create(companyId, {
+    await svc.create(companyId, { ownerAgentId: null,
       name: "Fake Sandbox",
       driver: "sandbox",
       status: "active",
@@ -2315,7 +2315,7 @@ describeEmbeddedPostgres("environmentService leases", () => {
     // A tenant-created sandbox env with config.provider "kubernetes" but WITHOUT
     // the managed metadata marker must NOT be treated as the managed k8s env,
     // otherwise it would bypass the operator gVisor runtimeClass / Cilium egress.
-    await svc.create(companyId, {
+    await svc.create(companyId, { ownerAgentId: null,
       name: "Tenant K8s Sandbox",
       driver: "sandbox",
       status: "active",
@@ -2346,14 +2346,14 @@ describeEmbeddedPostgres("environmentService leases", () => {
       updatedAt: new Date(),
     });
 
-    const first = await svc.create(companyId, {
+    const first = await svc.create(companyId, { ownerAgentId: null,
       name: "Production SSH",
       driver: "ssh",
       status: "active",
       envVars: {},
       config: { host: "prod.example.com", username: "deploy" },
     });
-    const second = await svc.create(companyId, {
+    const second = await svc.create(companyId, { ownerAgentId: null,
       name: "Staging SSH",
       driver: "ssh",
       status: "active",

@@ -879,6 +879,7 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
       id: environmentRecord.id,
       name: environmentRecord.name,
       description: environmentRecord.description,
+      ownerAgentId: null,
       driver,
       status: environmentRecord.status as EnvironmentStatus,
       config: environmentRecord.config,
