@@ -1,3 +1,4 @@
+import { GOOGLE_WORKSPACE_API_TOOLS, googleWorkspaceApiRisk, isCurrentGoogleWorkspaceApiCatalogEntry, isGoogleWorkspaceApiToolName, isGoogleWorkspaceApiConnection, executeGoogleWorkspaceApiTool, probeGoogleWorkspaceApi } from "./connectors/google-workspace-api/client.js";
 import { DAYTONA_TOOLS, daytonaClient, daytonaRisk, executeDaytonaTool, isCurrentDaytonaCatalogEntry, isDaytonaConnection, isDaytonaToolName } from "./daytona.js";
 import type { NativeCatalogEntry, NativeRestRequest } from "./native-rest-client.js";
 import { UNIKRAFT_DEFAULT_METRO, UNIKRAFT_TOOLS, executeUnikraftTool, isCurrentUnikraftCatalogEntry, isUnikraftConnection,
@@ -20,11 +21,18 @@ export type NativeProviderCatalog = {
   isToolName(name: string): boolean;
   risk(name: string): "read" | "write" | "destructive";
   isCurrentEntry(entry: NativeCatalogEntry): boolean;
-  probe(connection: ConnectionShape, headers: Record<string, string>, request: NativeRestRequest): Promise<unknown>;
-  execute(input: Parameters<typeof executeDaytonaTool>[0]): Promise<unknown>;
+  probe(connection: ConnectionShape, headers: Record<string, string>, request: NativeRestRequest, context?: { grantedScopes?: readonly string[] }): Promise<unknown>;
+  execute(input: Parameters<typeof executeDaytonaTool>[0] & { grantedScopes?: readonly string[] }): Promise<unknown>;
 };
 
 export const NATIVE_PROVIDER_CATALOGS: readonly NativeProviderCatalog[] = [
+  {
+    slug: "google-workspace", name: "Google Workspace APIs", tools: GOOGLE_WORKSPACE_API_TOOLS,
+    isConnection: isGoogleWorkspaceApiConnection, isToolName: isGoogleWorkspaceApiToolName,
+    risk: googleWorkspaceApiRisk, isCurrentEntry: isCurrentGoogleWorkspaceApiCatalogEntry,
+    probe: (connection, headers, request, context) => probeGoogleWorkspaceApi(connection, headers, request, context),
+    execute: executeGoogleWorkspaceApiTool,
+  },
   {
     slug: "daytona", name: "Daytona", tools: DAYTONA_TOOLS,
     isConnection: isDaytonaConnection, isToolName: isDaytonaToolName, risk: daytonaRisk, isCurrentEntry: isCurrentDaytonaCatalogEntry,

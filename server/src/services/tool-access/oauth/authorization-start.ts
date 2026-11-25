@@ -75,7 +75,10 @@ export function createOAuthAuthorizationStart(db: Db, dependencies: Dependencies
       if (sourceTemplateKey === "google-workspace") {
         if (input.workspaceServices && input.scopes) throw badRequest("Choose services or scopes, not both");
         const allowed = normalizeOauthScopes(galleryMethod?.defaults?.scopesHint);
-        let scopes = input.scopes ?? (input.workspaceServices ? googleWorkspaceSelectedScopes(input.workspaceServices) : undefined);
+        // A native API method can support fewer services than the preview MCP method.
+        // Derive the user's choice from closed groups, then intersect that method's scope set.
+        const selectionScopes = (selection: GoogleWorkspaceServiceSelection) => googleWorkspaceSelectedScopes(selection).filter(scope => allowed.includes(scope));
+        let scopes = input.scopes ?? (input.workspaceServices ? selectionScopes(input.workspaceServices) : undefined);
         if (!scopes && connection.status !== "draft") {
           // Account-page reconnect has no new service choice. Never replace its
           // subject's saved request with the new-account write defaults.
@@ -96,7 +99,7 @@ export function createOAuthAuthorizationStart(db: Db, dependencies: Dependencies
             .filter(scope => allowed.includes(scope));
           if (scopes.length === 0) throw badRequest("Choose your Google Workspace services before reconnecting");
         }
-        scopes ??= googleWorkspaceSelectedScopes(GOOGLE_WORKSPACE_DEFAULT_SELECTION);
+        scopes ??= selectionScopes(GOOGLE_WORKSPACE_DEFAULT_SELECTION);
         if (!isGoogleWorkspaceScopeGrant(scopes) || scopes.some(scope => !allowed.includes(scope))) throw badRequest("Select at least one supported Google service");
         return scopes;
       }

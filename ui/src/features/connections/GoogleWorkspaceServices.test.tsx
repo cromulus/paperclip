@@ -23,9 +23,9 @@ describe("Workspace service consent", () => {
     await act(async () => { button.click(); });
     await flush();
   };
-  async function render(connection?: ToolConnection) {
+  async function render(connection?: ToolConnection, nativeApi = false) {
     await act(async () => { root.render(<QueryClientProvider client={client}>
-      <GoogleWorkspaceServicesDialog connection={connection} onContinue={onContinue} onCancel={onCancel} />
+      <GoogleWorkspaceServicesDialog nativeApi={nativeApi} connection={connection} onContinue={onContinue} onCancel={onCancel} />
     </QueryClientProvider>); });
     await flush();
     await flush();
@@ -50,6 +50,13 @@ describe("Workspace service consent", () => {
     expect(listGrants).not.toHaveBeenCalled();
     await click("Continue");
     expect(onContinue).toHaveBeenCalledWith({ gmail: "write", drive: "write", calendar: "write" });
+  });
+
+  it("describes only the native API editors included in this method", async () => {
+    await render(undefined, true);
+    expect(document.body.textContent).toContain("Google Docs");
+    expect(document.body.textContent).not.toContain("Sheets");
+    expect(document.body.textContent).not.toContain("Slides");
   });
 
   it("restores the current user's saved request, not an organization or another user's broader grant", async () => {

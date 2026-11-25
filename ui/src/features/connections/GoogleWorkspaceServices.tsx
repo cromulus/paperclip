@@ -8,7 +8,8 @@ import { NativeSelect } from "@/components/ui/select";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { AppLogo } from "@/pages/apps/AppLogo";
 
-export function GoogleWorkspaceServiceFields({ value, onChange }: {
+export function GoogleWorkspaceServiceFields({ value, onChange, nativeApi = false }: {
+  nativeApi?: boolean;
   value: GoogleWorkspaceServiceSelection;
   onChange: (value: GoogleWorkspaceServiceSelection) => void;
 }) {
@@ -17,7 +18,7 @@ export function GoogleWorkspaceServiceFields({ value, onChange }: {
       <AppLogo name={group.name} brandKey={group.brandKey} size={28} />
       <div className="min-w-0 flex-1 space-y-1">
         <label htmlFor={`workspace-service-${group.id}`} className="text-sm font-medium">{group.name}</label>
-        {"description" in group && <p className="text-xs text-muted-foreground">{group.description}</p>}
+        {"description" in group && <p className="text-xs text-muted-foreground">{nativeApi ? "Google Docs" : group.description}</p>}
       </div>
       <NativeSelect aria-label={`${group.name} access`} disabled={!value[group.id]} value={value[group.id] ?? "write"}
         className="w-auto shrink-0 disabled:opacity-50"
@@ -40,6 +41,7 @@ type DialogProps = {
   onCancel: (selection?: GoogleWorkspaceServiceSelection) => void;
   initial?: GoogleWorkspaceServiceSelection;
   connection?: ToolConnection;
+  nativeApi?: boolean;
 };
 
 export function GoogleWorkspaceServicesDialog(props: DialogProps) {
@@ -58,7 +60,7 @@ export function GoogleWorkspaceServicesDialog(props: DialogProps) {
   return <ServicePicker {...props} initial={props.initial ?? (existing ? googleWorkspaceSelectionForScopes(savedScopes) : undefined)} />;
 }
 
-function ServicePicker({ onContinue, onCancel, initial = GOOGLE_WORKSPACE_DEFAULT_SELECTION }: DialogProps) {
+function ServicePicker({ onContinue, onCancel, initial = GOOGLE_WORKSPACE_DEFAULT_SELECTION, nativeApi = false }: DialogProps) {
   const [selection, setSelection] = useState(initial);
   const empty = Object.keys(selection).length === 0;
   return <Dialog open onOpenChange={open => { if (!open) onCancel(selection); }}>
@@ -67,7 +69,7 @@ function ServicePicker({ onContinue, onCancel, initial = GOOGLE_WORKSPACE_DEFAUL
         <div className="flex items-center gap-3"><AppLogo name="Google Workspace" brandKey="google" size={40} /><DialogTitle>Connect Google Workspace</DialogTitle></div>
         <DialogDescription className="sr-only">Choose the Google services to connect.</DialogDescription>
       </DialogHeader>
-      <GoogleWorkspaceServiceFields value={selection} onChange={setSelection} />
+      <GoogleWorkspaceServiceFields value={selection} onChange={setSelection} nativeApi={nativeApi} />
       {empty && <p role="status" className="text-xs text-muted-foreground">Select at least one service to continue.</p>}
       <footer className="flex items-center justify-between gap-3 pt-4">
         <Button variant="ghost" onClick={() => onCancel(selection)}>Cancel</Button>

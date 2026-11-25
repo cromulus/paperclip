@@ -328,6 +328,19 @@ These axes produce combinations such as:
 - Remote MCP + no auth + required tenant field: Shopify.
 - Remote MCP + Paperclip-managed OAuth client + per-user grant: Google
   Workspace MCP previews.
+- Native REST API + customer-owned OAuth client + Paperclip vault: Google
+  Workspace `customer-workspace-api`. This method uses standard Gmail, Calendar,
+  Drive and Docs APIs and does not require Workspace MCP preview enrollment.
+  Enable those APIs in the OAuth client's Cloud project. Register the exact
+  Paperclip callback shown in setup as a Web application redirect URI. Offline
+  access refreshes the selected user's grant; API keys alone cannot authorize
+  private user data. Native actions enter the existing audited agent MCP gateway.
+  Service selection limits requested scopes, and actual returned consent limits
+  discovery and each invocation. The initial Gmail write operation creates drafts
+  only. Calendar notifications are suppressed. Docs edits require a revision.
+  Existing preview MCP connections and their agent assignments are unchanged.
+  A Docs-only grant has consent verification but no document-free API health probe;
+  provider access is verified by its first permitted document read.
 - Remote MCP + Paperclip-managed OAuth client + personal or dedicated-agent
   grant: GitHub. See [GitHub managed connection](./GITHUB.md).
 - Local stdio MCP + approved command template: the Google Sheets robot flow and

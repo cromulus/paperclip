@@ -1999,7 +1999,7 @@ describe("AppsConnect — Connect with a link (M4 frame)", () => {
   });
 
   it("selects Workspace service groups before creating a single connection", async () => {
-    mockSearch.value = "source=google-workspace&stage=setup";
+    mockSearch.value = "source=google-workspace&stage=setup&method=paperclip-workspace";
     const workspace = getAppStoreDefinition("google-workspace")!;
     listGalleryMock.mockResolvedValue({ apps: [{
       ...workspace, ownershipAvailability: { ...workspace.ownershipAvailability, platform_shared: true },
@@ -2035,6 +2035,18 @@ describe("AppsConnect — Connect with a link (M4 frame)", () => {
       galleryKey: "google-workspace", connectionMethodKey: "paperclip-workspace",
       workspaceServices: { gmail: "read", drive: "write", calendar: "write" },
     }));
+  });
+
+  it("offers native Workspace API OAuth separately from preview MCP setup", async () => {
+    mockSearch.value = "source=google-workspace&stage=setup&method=customer-workspace-api";
+    const workspace = getAppStoreDefinition("google-workspace")!;
+    listGalleryMock.mockResolvedValue({ apps: [workspace] });
+    await render();
+    await openAccessAdvanced();
+    expect(container.textContent).toContain("Client ID");
+    expect(container.textContent).toContain("Client secret");
+    expect(container.textContent).not.toContain("Google Developer Preview access required");
+    expect(connectAppMock).not.toHaveBeenCalled();
   });
 
   it("renders Google Calendar as one minimal, unboxed setup screen", async () => {

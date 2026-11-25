@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "slug": "google-workspace",
   "name": "Google Workspace",
-  "description": "Connect Gmail, Drive, Docs, Sheets, Slides, and Calendar with one Google account.",
+  "description": "Connect Gmail, Calendar, Drive and Docs through standard Google APIs, or use Google\u2019s preview MCP services.",
   "categories": [
     "productivity",
     "communication",
@@ -15,15 +15,57 @@
   "urlPatterns": [
     "https://workspace.google.com/*"
   ],
-  "docsUrl": "https://developers.google.com/workspace/guides/configure-mcp-servers",
-  "setupPrerequisite": {
-    "title": "Google Developer Preview access required",
-    "description": "Google must register the Workspace email and the Cloud project that owns the OAuth client before these services can be used.",
-    "actionLabel": "Check preview enrollment",
-    "actionUrl": "https://developers.google.com/workspace/preview"
-  },
+  "docsUrl": "https://developers.google.com/workspace/guides/enable-apis",
   "redirectConstraints": "https-or-loopback-http",
   "methods": [
+    {
+      "key": "customer-workspace-api",
+      "label": "Google APIs (OAuth)",
+      "transport": "rest_api",
+      "auth": "oauth",
+      "capabilityProfile": {
+        "key": "write",
+        "label": "Gmail, Calendar, Drive and Docs",
+        "description": "Use standard Google APIs with your own Google OAuth app."
+      },
+      "grantKinds": [
+        "user",
+        "organization"
+      ],
+      "ownershipModes": [
+        "customer"
+      ],
+      "whenToUse": "Connect directly to standard Google APIs; no Google Workspace MCP preview enrollment is required.",
+      "defaults": {
+        "serverUrl": "https://www.googleapis.com",
+        "authorizationEndpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+        "tokenEndpoint": "https://oauth2.googleapis.com/token",
+        "metadataUrl": "https://accounts.google.com/.well-known/openid-configuration",
+        "scopesHint": [
+          "https://www.googleapis.com/auth/gmail.readonly",
+          "https://www.googleapis.com/auth/gmail.compose",
+          "https://www.googleapis.com/auth/drive.readonly",
+          "https://www.googleapis.com/auth/drive.file",
+          "https://www.googleapis.com/auth/documents.readonly",
+          "https://www.googleapis.com/auth/documents",
+          "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+          "https://www.googleapis.com/auth/calendar.events.freebusy",
+          "https://www.googleapis.com/auth/calendar.events.readonly",
+          "https://www.googleapis.com/auth/calendar.events"
+        ],
+        "oauthAuthorizationParams": {
+          "access_type": "offline",
+          "prompt": "consent"
+        }
+      },
+      "guidanceMd": "Enable Gmail, Calendar, Drive and Google Docs APIs in your Google Cloud project. Register the callback URI shown here as a Web application OAuth client. Choose services and access before signing in. Agents use the granted APIs through Paperclip\u2019s existing tool permissions. Gmail write access creates drafts; sending is not included.",
+      "consoleLinks": {
+        "register": "https://console.cloud.google.com/auth/clients",
+        "docs": "https://developers.google.com/workspace/guides/enable-apis"
+      },
+      "riskTier": "S4",
+      "oauthClientSecretRequired": true
+    },
     {
       "key": "paperclip-workspace",
       "label": "Connect with Paperclip",
@@ -63,7 +105,7 @@
           "https://www.googleapis.com/auth/calendar.events"
         ]
       },
-      "guidanceMd": "Choose Gmail, Drive, or Calendar and their access level before signing in. Only selected and granted actions are available.",
+      "guidanceMd": "Google Workspace MCP Developer Preview enrollment is required for this method. Choose Gmail, Drive, or Calendar and their access level before signing in. Only selected and granted actions are available.",
       "riskTier": "S4"
     },
     {
@@ -110,7 +152,7 @@
           "prompt": "consent"
         }
       },
-      "guidanceMd": "Enable the Google Workspace MCP APIs and register Paperclip's callback URI. Choose which permissions to grant on Google's consent screen; declined permissions disable only the corresponding actions.",
+      "guidanceMd": "Google Workspace MCP Developer Preview enrollment is required for this method. Enable the Google Workspace MCP APIs and register Paperclip's callback URI. Choose which permissions to grant on Google's consent screen; declined permissions disable only the corresponding actions.",
       "consoleLinks": {
         "register": "https://console.cloud.google.com/auth/clients",
         "docs": "https://developers.google.com/workspace/guides/configure-mcp-servers"

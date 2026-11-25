@@ -2841,7 +2841,7 @@
       "reviewedAt": "2026-10-21",
       "liveProof": "not-run",
       "evidenceLimit": "Public provider documentation and OAuth metadata only. Account-bound connect, discovery, read/write execution, run-scoped gateway, refresh/reconnect, removal, and secret handling remain to be qualified for this method.",
-      "keyPermissions": "Create a Braintrust API key in Settings → API keys for the account and organization whose data agents should access. The key must authorize the reads and writes you intend to allow; Paperclip cannot increase or narrow its provider permissions. Evaluations and Topics processing can incur costs. Dataset edits can permanently delete rows; automation activation can enable retention or delivery."
+      "keyPermissions": "Create a Braintrust API key in Settings \u2192 API keys for the account and organization whose data agents should access. The key must authorize the reads and writes you intend to allow; Paperclip cannot increase or narrow its provider permissions. Evaluations and Topics processing can incur costs. Dataset edits can permanently delete rows; automation activation can enable retention or delivery."
     },
     {
       "app": "braintrust",
@@ -2878,7 +2878,7 @@
       "reviewedAt": "2026-10-21",
       "liveProof": "not-run",
       "evidenceLimit": "Public provider documentation and OAuth metadata only. Account-bound connect, discovery, read/write execution, run-scoped gateway, refresh/reconnect, removal, and secret handling remain to be qualified for this method.",
-      "keyPermissions": "Create a Braintrust API key in Settings → API keys for the account and organization whose data agents should access. The key must authorize the reads and writes you intend to allow; Paperclip cannot increase or narrow its provider permissions. Evaluations and Topics processing can incur costs. Dataset edits can permanently delete rows; automation activation can enable retention or delivery."
+      "keyPermissions": "Create a Braintrust API key in Settings \u2192 API keys for the account and organization whose data agents should access. The key must authorize the reads and writes you intend to allow; Paperclip cannot increase or narrow its provider permissions. Evaluations and Topics processing can incur costs. Dataset edits can permanently delete rows; automation activation can enable retention or delivery."
     },
     {
       "app": "unikraft",
@@ -2897,6 +2897,33 @@
       "reviewedAt": "2026-10-15",
       "liveProof": "not-run",
       "keyPermissions": "Create an API token in the Unikraft Cloud console. A token acts for its whole organization in every metro, including running sandbox commands and deleting resources. Unikraft does not offer narrower token permissions, so choose trusted agents and use action permissions to limit what they can do."
+    },
+    {
+      "app": "google-workspace",
+      "method": "customer-workspace-api",
+      "auth": "oauth",
+      "policy": "explicit",
+      "requestedScopes": [
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.compose",
+        "https://www.googleapis.com/auth/drive.readonly",
+        "https://www.googleapis.com/auth/drive.file",
+        "https://www.googleapis.com/auth/documents.readonly",
+        "https://www.googleapis.com/auth/documents",
+        "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+        "https://www.googleapis.com/auth/calendar.events.freebusy",
+        "https://www.googleapis.com/auth/calendar.events.readonly",
+        "https://www.googleapis.com/auth/calendar.events"
+      ],
+      "supportedActions": "Bounded Gmail search/read and draft creation, Calendar event reads and edits, Drive file reads/create/copy, and revision-guarded Google Docs text edits. No mail sending. Select service scopes before consent; only actual returned consent enables tools.",
+      "evidence": [
+        "https://developers.google.com/identity/protocols/oauth2/web-server",
+        "https://developers.google.com/workspace/gmail/api/auth/scopes",
+        "https://developers.google.com/workspace/drive/api/guides/api-specific-auth",
+        "https://developers.google.com/workspace/calendar/api/auth",
+        "https://developers.google.com/workspace/docs/api/auth"
+      ],
+      "reviewedAt": "2026-11-24"
     }
   ]
 }

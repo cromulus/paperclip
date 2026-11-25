@@ -34,10 +34,22 @@ describe("combined Google Workspace consent", () => {
     expect(expected).toHaveLength(21);
     expect(expected).not.toContain(scope("gmail.modify"));
     const app = getConnectableAppDefinition("google-workspace")!;
-    expect(app.methods).toHaveLength(2);
+    expect(app.methods).toHaveLength(3);
     expect(app.methods.filter((method) => method.connectorProfile)).toHaveLength(1);
-    for (const method of app.methods) expect(method.defaults?.scopesHint).toEqual(expected.filter(scope => !/chat|contacts|directory|userinfo|\/calendar.readonly$/.test(scope)));
+    for (const method of app.methods.filter(method => method.transport === "mcp_remote")) expect(method.defaults?.scopesHint).toEqual(expected.filter(scope => !/chat|contacts|directory|userinfo|\/calendar.readonly$/.test(scope)));
     for (const profile of Object.values(GOOGLE_WORKSPACE_SERVICES)) expect(getConnectableAppDefinition(profiles[profile].appSlug)).not.toBeNull();
+  });
+
+  it("offers standard Google APIs without preview MCP enrollment or broader scopes", () => {
+    const app = getConnectableAppDefinition("google-workspace")!;
+    const method = app.methods.find(method => method.key === "customer-workspace-api")!;
+    expect(app.setupPrerequisite).toBeUndefined();
+    expect(method.transport).toBe("rest_api");
+    expect(method.auth).toBe("oauth");
+    expect(method.defaults?.authorizationEndpoint).toBe("https://accounts.google.com/o/oauth2/v2/auth");
+    expect(method.defaults?.oauthAuthorizationParams).toMatchObject({ access_type: "offline", prompt: "consent" });
+    expect(method.defaults?.scopesHint?.some(scope => /spreadsheets|presentations|gmail.send|gmail.modify/.test(scope))).toBe(false);
+    expect(method.defaults?.scopesHint).toContain(scope("documents"));
   });
 
   it("accepts a nonempty subset but not missing or unrequested permissions", () => {

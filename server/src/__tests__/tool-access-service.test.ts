@@ -2647,6 +2647,64 @@ describeEmbeddedPostgres("tool access service", () => {
     })).rejects.toMatchObject({ status: 400 });
   });
 
+  it("connects standard Google APIs with offline OAuth and publishes only actual consent without MCP discovery", async () => {
+    const company = await createCompany(db);
+    const userId = `workspace-api-${randomUUID()}`;
+    await grantBoardUser(db, company.id, userId, [], "owner");
+    const actor = { actorType: "user" as const, actorId: userId };
+    const service = createTestToolAccessService(db);
+    const connected = await service.connectGalleryApp(company.id, {
+      galleryKey: "google-workspace", connectionMethodKey: "customer-workspace-api", grantKind: "user",
+      oauthClient: { clientId: "fixture-api-client", clientSecret: "fixture-api-secret" },
+    }, actor);
+    expect(connected.connection.transport).toBe("rest_api");
+    const redirectUri = "https://paperclip.example.test/api/tools/oauth/callback";
+    const started = await service.startOAuth(company.id, connected.connectionId, {
+      redirectUri, actor, workspaceServices: { drive: "read" },
+    });
+    const authorization = new URL(started.authorizationUrl);
+    expect(authorization.origin).toBe("https://accounts.google.com");
+    expect(authorization.searchParams.get("access_type")).toBe("offline");
+    expect(authorization.searchParams.get("scope")?.split(" ")).toEqual([
+      "https://www.googleapis.com/auth/documents.readonly", "https://www.googleapis.com/auth/drive.readonly",
+    ]);
+    const provider = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      // Docs-only consent has no harmless document-free read endpoint. Its
+      // API availability remains unverified until a permitted document read.
+      if (String(url) === "https://docs.googleapis.com/v1/documents/fixture-doc?includeTabsContent=true") {
+        return Response.json({ documentId: "fixture-doc", title: "Synthetic document", revisionId: "revision-1" });
+      }
+      expect(String(url)).toBe("https://oauth2.googleapis.com/token");
+      return Response.json({ access_token: "fixture-api-access", refresh_token: "fixture-api-refresh",
+        expires_in: 3600, token_type: "Bearer", scope: "https://www.googleapis.com/auth/documents.readonly" });
+    });
+    const completed = await service.completeOAuthCallback({
+      state: authorization.searchParams.get("state")!, code: "fixture-code", redirectUri, actor,
+    });
+    expect(completed.connection.status).toBe("active");
+    expect(completed.catalog.map(entry => entry.toolName)).toEqual(["docs__read_doc"]);
+    expect(provider).toHaveBeenCalledTimes(1);
+    const grants = await db.select().from(connectionGrants).where(eq(connectionGrants.connectionId, connected.connectionId));
+    const grant = grants.find(grant => grant.subjectUserId === userId)!;
+    expect(grant.providerTenant?.oauth?.scopes).toEqual(["https://www.googleapis.com/auth/documents.readonly"]);
+    expect(JSON.stringify(completed)).not.toContain("fixture-api-refresh");
+    const agent = await createAgent(db, company.id);
+    await service.finishGalleryAppConnection(company.id, connected.connectionId, {
+      enabledCatalogEntryIds: completed.catalog.map(entry => entry.id), askFirstCatalogEntryIds: [], access: { agentIds: [agent.id] },
+    }, actor);
+    const [run] = await db.insert(heartbeatRuns).values({ companyId: company.id, agentId: agent.id,
+      responsibleUserId: userId, invocationSource: "on_demand", status: "running", contextSnapshot: {} }).returning();
+    const gateway = createToolGatewayService(db, { toolActionSigningSecret: "test-secret", oauthGrantRefresher: service.refreshOAuthGrantCredentials });
+    const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+    const tools = await gateway.listToolsForSession(session.token);
+    const docs = tools.find(tool => tool.upstreamToolName === "docs__read_doc")!;
+    expect(docs).toBeDefined();
+    expect(tools.some(tool => tool.upstreamToolName === "docs__update_doc")).toBe(false);
+    await expect(gateway.executeTool({ sessionToken: session.token, tool: docs.name, parameters: { documentId: "fixture-doc" } }))
+      .resolves.toMatchObject({ status: "completed" });
+    expect(provider).toHaveBeenCalledTimes(2);
+  });
+
   it.each(["https://www.googleapis.com/auth/documents.readonly", undefined, "", "https://www.googleapis.com/auth/gmail.send"])(
     "requires explicit reviewed partial consent for customer Workspace OAuth (%s)", async (scope) => {
       const company = await createCompany(db);

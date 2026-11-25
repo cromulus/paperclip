@@ -228,3 +228,17 @@ Slack setup does not qualify Discord, Telegram, GitHub, email, or iMessage.
 ### Documentation scope: App catalog and connection setup
 
 Provider-specific authentication/revocation, credential-only accounts, and aggregator administrative variants still need their own detailed matrices.
+
+### Google Workspace standard APIs
+
+Source addition (2026-11-24): the existing Google Workspace app also offers
+`customer-workspace-api`, a native REST/OAuth method for Gmail, Calendar, Drive
+and Docs. Existing OAuth vault, refresh, installation and action-policy controls
+remain authoritative. Service selection bounds requested scopes; actual provider
+consent bounds indexed tools and dispatch. The server maps typed operations to
+fixed Google API endpoints. Agents use the existing run-scoped MCP gateway;
+they do not receive provider refresh tokens or an unrestricted HTTP tool.
+Gmail writes create drafts only. Docs edits require a revision. Existing preview
+MCP connections remain available. See the [connector playbook](../../doc/connections/CONNECTOR-PLAYBOOK.md).
+Verification: `not-run` for live Google account authorization and invocation.
+Controlled OAuth/provider fixtures establish local contracts only.

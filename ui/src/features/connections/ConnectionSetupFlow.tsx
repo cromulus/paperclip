@@ -656,6 +656,7 @@ function StandardConnectionSetupFlow({
   const workspaceSelectionRef = useRef<GoogleWorkspaceServiceSelection | null>(null);
   const [workspaceConsent, setWorkspaceConsent] = useState<(() => void) | null>(null);
   const [workspaceConnection, setWorkspaceConnection] = useState<ToolConnection | undefined>();
+  const [workspaceNativeApi, setWorkspaceNativeApi] = useState(false);
   const [workspaceDraft, setWorkspaceDraft] = useState<GoogleWorkspaceServiceSelection | undefined>();
   const queryClient = useQueryClient();
   const routeNavigate = useNavigate();
@@ -1376,6 +1377,7 @@ function StandardConnectionSetupFlow({
   const startOAuth = useCallback((connection: ToolConnection) => {
     if (connection.config?.sourceTemplateKey === "google-workspace" && !workspaceSelectionRef.current) {
       setWorkspaceConnection(connection);
+      setWorkspaceNativeApi(connection.transport === "rest_api");
       setWorkspaceConsent(() => () => {
         onPhaseChange?.("authorizing");
         reserveOAuthPopup();
@@ -1591,6 +1593,7 @@ function StandardConnectionSetupFlow({
       : null;
     if (connectEntry?.slug === "google-workspace" && !workspaceSelectionRef.current) {
       setWorkspaceConnection(identityConnection ?? undefined);
+      setWorkspaceNativeApi(method?.transport === "rest_api");
       setWorkspaceConsent(() => () => {
         reserveOAuthPopup();
         mutateConnect(entryOverride);
@@ -2240,6 +2243,7 @@ function StandardConnectionSetupFlow({
   );
 
   if (workspaceConsent) return <GoogleWorkspaceServicesDialog
+    nativeApi={workspaceNativeApi}
     connection={workspaceConnection}
     initial={workspaceDraft}
     onCancel={selection => { if (selection) setWorkspaceDraft(selection); setWorkspaceConsent(null); setOAuthPhase("entry"); onPhaseChange?.("requested"); }}

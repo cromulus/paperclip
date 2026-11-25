@@ -6079,11 +6079,17 @@ export function createToolGatewayService(
       const budgetMs = Math.min(ms, 30_000);
       const deadlineAt = Date.now() + budgetMs;
       const signal = AbortSignal.timeout(budgetMs);
+      const headers = await resolveCredentialHeaders(session, connection, grant);
+      // Refresh may narrow consent. Dispatch with the current acting identity's
+      // persisted grant rather than the pre-refresh snapshot.
+      const nativeGrant = connection.config.sourceTemplateKey === "google-workspace"
+        ? await resolveConnectionGrant(session, connection, false) : grant;
       const data = await nativeProvider.execute({ binding: session, connection,
-        headers: await resolveCredentialHeaders(session, connection, grant),
+        headers,
         request: (url, init) => options.remoteHttpRequest ? options.remoteHttpRequest(url, init)
           : guardedRemoteHttpFetch(url, init, remoteHttpFetchOptions()),
-        toolName: entry.toolName, parameters, signal, deadlineAt });
+        toolName: entry.toolName, parameters, signal, deadlineAt,
+        grantedScopes: connection.config.sourceTemplateKey === "google-workspace" ? googleWorkspaceGrantedScopes(nativeGrant) : undefined });
       return { result: { content: JSON.stringify(data), data: { structuredContent: data, transport: "rest_api" } } };
     }
     if (isBrowserUseConnection(connection)) {
