@@ -21,7 +21,7 @@ import {
   usePluginStream,
   usePluginToast,
 } from "./bridge.js";
-import { Component, createElement, useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
+import { Component, createElement, lazy, Suspense, useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
 import * as ReactJsxRuntimeModule from "react/jsx-runtime";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { User } from "lucide-react";
@@ -31,9 +31,7 @@ import {
 } from "@/components/FileTree";
 import { AgentIcon } from "@/components/AgentIconPicker";
 import { InlineEntitySelector, type InlineEntityOption } from "@/components/InlineEntitySelector";
-import { IssuesList as HostIssuesList } from "@/components/IssuesList";
 import { ManagedRoutinesList as HostManagedRoutinesList } from "@/components/ManagedRoutinesList";
-import { MarkdownBody } from "@/components/MarkdownBody";
 import { accessApi } from "@/api/access";
 import { agentsApi } from "@/api/agents";
 import { authApi } from "@/api/auth";
@@ -60,6 +58,12 @@ import {
 } from "@/lib/recent-assignees";
 import { getRecentProjectIds, trackRecentProject } from "@/lib/recent-projects";
 import { copyTextToClipboard } from "@/lib/clipboard";
+
+// These rich plugin SDK widgets are used only inside plugin-provided views.
+// Keeping them behind lazy boundaries prevents their task-table and Markdown
+// dependency graphs from inflating the initial board bundle.
+const HostIssuesList = lazy(() => import("@/components/IssuesList").then((module) => ({ default: module.IssuesList })));
+const HostMarkdownBody = lazy(() => import("@/components/MarkdownBody").then((module) => ({ default: module.MarkdownBody })));
 
 // ---------------------------------------------------------------------------
 // Global bridge registry
@@ -327,20 +331,24 @@ function PluginSdkIssuesList({
     return createElement("div", { className: "text-sm text-muted-foreground" }, "Select an organization to view tasks.");
   }
 
-  return createElement(HostIssuesList, {
-    issues: issues ?? [],
-    isLoading,
-    error: error as Error | null,
-    agents,
-    projects,
-    liveIssueIds,
-    projectId: resolvedProjectId ?? undefined,
-    viewStateKey,
-    initialSearch,
-    createIssueLabel,
-    searchWithinLoadedIssues,
-    onUpdateIssue: (id: string, data: Record<string, unknown>) => updateIssue.mutate({ id, data }),
-  });
+  return createElement(
+    Suspense,
+    { fallback: createElement("div", { "aria-busy": true, className: "min-h-24" }) },
+    createElement(HostIssuesList, {
+      issues: issues ?? [],
+      isLoading,
+      error: error as Error | null,
+      agents,
+      projects,
+      liveIssueIds,
+      projectId: resolvedProjectId ?? undefined,
+      viewStateKey,
+      initialSearch,
+      createIssueLabel,
+      searchWithinLoadedIssues,
+      onUpdateIssue: (id: string, data: Record<string, unknown>) => updateIssue.mutate({ id, data }),
+    }),
+  );
 }
 
 function PluginSdkAssigneePicker({
@@ -700,14 +708,18 @@ export function initPluginBridge(
         wikiLinkRoot,
         resolveWikiLinkHref,
       }: PluginMarkdownBlockProps) =>
-        createElement(MarkdownBody, {
-          className,
-          softBreaks: false,
-          enableWikiLinks,
-          wikiLinkRoot,
-          resolveWikiLinkHref,
-          children: content,
-        }),
+        createElement(
+          Suspense,
+          { fallback: null },
+          createElement(HostMarkdownBody, {
+            className,
+            softBreaks: false,
+            enableWikiLinks,
+            wikiLinkRoot,
+            resolveWikiLinkHref,
+            children: content,
+          }),
+        ),
       MetricCard: PluginSdkMetricCard,
       StatusBadge: PluginSdkStatusBadge,
       DataTable: PluginSdkDataTable,

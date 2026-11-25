@@ -23,6 +23,19 @@ export default defineConfig(({ mode }) => ({
         codeSplitting: {
           groups: [
             { name: "board-startup", tags: ["$initial"], priority: 10 },
+            // Message and plugin Markdown is shared by chat, issue detail, and
+            // other surfaces. Keep it out of the task-detail workbench chunk
+            // so a chat page never needs to download the full issue UI.
+            { name: "markdown-renderer", test: /\/components\/MarkdownBody\.tsx$/, priority: 8 },
+            // The task-chat renderer is shared by agent chat and issue detail.
+            // Split it so opening a chat does not fetch the full workbench.
+            { name: "task-chat", test: /(?:\/components\/task-chat\/.*\.tsx|\/components\/IssueThreadInteractionCard\.tsx)$/, priority: 7 },
+            // Chat views consume transcript hooks also used by task detail.
+            // Keep those small shared runtime pieces out of the detail chunk.
+            { name: "chat-transcripts", test: /\/components\/transcript\/(?:useLiveRunTranscripts|useNativeRunTranscripts|native-run-events|read-transcript-request)\.ts$/, priority: 7 },
+            // The list implementation is also used by plugin SDK views. Its
+            // dependency graph should load only for those views or task pages.
+            { name: "issue-lists", test: /\/components\/(?:IssuesList|LegacyIssuesList)\.tsx$/, priority: 6 },
             { name: "issue-detail", test: /\/src\/pages\/IssueDetail\.tsx$/, priority: 5 },
           ],
         },

@@ -284,6 +284,14 @@ describe("plugin SDK markdown component bridge", () => {
     expect(registry.AssigneePicker).toBeTypeOf("function");
     expect(registry.ProjectPicker).toBeTypeOf("function");
     expect(registry.ManagedRoutinesList).toBeTypeOf("function");
+    const markdownBridge = registry.MarkdownBlock as (props: { content: string }) => React.ReactElement;
+    const lazyWrapper = markdownBridge({ content: "# Deferred widget" }) as React.ReactElement<{
+      children?: React.ReactNode;
+    }>;
+    expect(lazyWrapper.type).toBe(React.Suspense);
+    expect((lazyWrapper.props.children as React.ReactElement).type).toMatchObject({
+      $$typeof: Symbol.for("react.lazy"),
+    });
   });
 
   it("renders plugin-provided markdown components when registered by the host", () => {
