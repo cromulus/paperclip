@@ -37,6 +37,25 @@ Open `/board-chat` only when its conference-room gate is enabled.
 
 Preconditions: follow the [baseline](./README.md#before-driving-a-journey). Enable the applicable chat feature, use a configured test agent, and distinguish model replies from a mocked conversation fixture.
 
+### Lightweight conversation loading
+
+Agent Chat uses a bounded bootstrap response and a persistent message/composer
+surface. Full task controls open only from Details or the attachment/tools
+button. Starting with a file remains available through that explicit action;
+reading or hovering over a chat never creates it or starts an agent.
+Sidebar hover, keyboard focus and touch warm only the intended conversation,
+using the current company, user and canonical agent ID. A changed session
+discards an in-flight prefetch. Every send still checks the current server guard.
+History paging, active transcript updates and pending requests remain available.
+Protocol editors load on their row, with a visible fallback and local error state;
+ordinary messages stay readable while that module loads.
+
+Verification sources: [bootstrap service tests](../../server/src/__tests__/agent-conversations.test.ts),
+[light conversation tests](../../ui/src/pages/AgentChat.test.tsx), and
+[sidebar tests](../../ui/src/components/SidebarAgentChats.test.tsx).
+Cold full-document loading, cached browser clicks and automation action timing
+are distinct measurements; do not report them as the same latency.
+
 ### `agent-conversation`
 
 Automated: [chat landing](../../ui/src/pages/AgentChats.test.tsx) checks recent-chat routing; [conversation service](../../server/src/__tests__/agent-conversations.test.ts) covers persisted conversation behavior.

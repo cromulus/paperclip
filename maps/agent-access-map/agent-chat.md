@@ -21,6 +21,7 @@ API: `present` — representative operation IDs:
 
 - `GET /api/companies/{companyId}/chats`.
 - `GET /api/companies/{companyId}/chats/{agentRef}`.
+- `GET /api/companies/{companyId}/chats/{agentRef}/bootstrap`.
 
 Agent access: `restricted` — Board-user REST; the responding agent gets its assigned
 conversation context.
@@ -121,3 +122,18 @@ remaining operations before qualifying the whole capability.
 Gaps: Not callable through generic REST tooling: protocol and deployment constraints
 apply. This route is not guarded by assertBoard, so its intended agent policy needs
 clarification.
+
+### Bounded bootstrap and intent prefetch
+
+Source addition (2026-11-25): the bootstrap GET requires the board user and
+current company, resolves the canonical agent and that user's standing chat,
+checks task visibility, and returns a keyset-paged canonical history plus a
+bounded request/send guard. It neither creates a chat nor wakes an agent.
+Agents cannot use it to enumerate another person's conversations.
+The existing POST ensure/send paths retain creation and dispatch authority.
+Client cache and intent prefetch are keyed by company, user and canonical agent;
+results from an in-flight session change are discarded. Mutation submission
+refreshes the server guard even when the displayed history is cached.
+Controlled PostgreSQL and UI fixtures cover owner/company denial, no GET
+creation, paging, stale send checks and account changes. These fixtures are
+not proof of every delegated agent operation in this capability.
