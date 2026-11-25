@@ -125,6 +125,7 @@ export function SidebarNavItem({
       aria-label={railAriaLabel}
       onMouseEnter={onIntent}
       onFocus={onIntent}
+      onTouchStart={onIntent}
       onClick={() => { if (isMobile) setSidebarOpen(false); }}
       className={({ isActive }) =>
         cn(

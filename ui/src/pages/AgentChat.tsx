@@ -4,6 +4,7 @@ import type { Agent } from "@paperclipai/shared";
 import { agentChatsApi } from "@/api/agentChats";
 import { authApi } from "@/api/auth";
 import { useCompany } from "@/context/CompanyContext";
+import { useBreadcrumbs } from "@/context/BreadcrumbContext";
 import { useAgentChatEnabled } from "@/hooks/useAgentChatEnabled";
 import { recordAgentChatVisit } from "@/lib/recent-agent-chats";
 import { queryKeys } from "@/lib/queryKeys";
@@ -15,6 +16,7 @@ export function AgentChat() {
   const { agentRef = "" } = useParams<{ agentRef: string }>();
   const { selectedCompanyId } = useCompany();
   const { enabled, loaded } = useAgentChatEnabled();
+  const { setBreadcrumbs } = useBreadcrumbs();
   const client = useQueryClient();
   const session = useQuery({
     queryKey: queryKeys.auth.session,
@@ -39,6 +41,11 @@ export function AgentChat() {
     staleTime: 30_000,
     refetchInterval: query => query.state.data?.activeRun ? 2_000 : false,
   });
+
+  const breadcrumbAgent = bootstrap.data?.agent ?? cachedAgent ?? null;
+  useEffect(() => {
+    setBreadcrumbs(breadcrumbAgent ? [{ label: breadcrumbAgent.name }] : []);
+  }, [breadcrumbAgent?.id, breadcrumbAgent?.name, setBreadcrumbs]);
 
   useEffect(() => {
     const result = bootstrap.data;

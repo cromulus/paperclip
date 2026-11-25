@@ -10,13 +10,14 @@ import { queryKeys } from "@/lib/queryKeys";
 import { AgentChat } from "./AgentChat";
 import { shouldRefreshAgentChatForLiveEvent } from "./AgentChatFastPath";
 
-const state = vi.hoisted(() => ({ agentRef: "cos", companyId: "company-a", userId: "user-a", liveHandler: null as ((event: import("@paperclipai/shared").LiveEvent) => void) | null }));
+const state = vi.hoisted(() => ({ agentRef: "cos", companyId: "company-a", userId: "user-a", setBreadcrumbs: vi.fn(), liveHandler: null as ((event: import("@paperclipai/shared").LiveEvent) => void) | null }));
 
 vi.mock("@/lib/router", () => ({
   useParams: () => ({ agentRef: state.agentRef }),
   Link: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) => <a {...props}>{children}</a>,
 }));
 vi.mock("@/context/CompanyContext", () => ({ useCompany: () => ({ selectedCompanyId: state.companyId }) }));
+vi.mock("@/context/BreadcrumbContext", () => ({ useBreadcrumbs: () => ({ setBreadcrumbs: state.setBreadcrumbs }) }));
 vi.mock("@/hooks/useAgentChatEnabled", () => ({ useAgentChatEnabled: () => ({ enabled: true, loaded: true }) }));
 vi.mock("@/api/auth", () => ({ authApi: { getSession: async () => ({ user: { id: state.userId } }) } }));
 vi.mock("@/api/agentChats", () => ({ agentChatsApi: { list: vi.fn(), get: vi.fn(), ensure: vi.fn(), bootstrap: vi.fn() } }));
@@ -61,6 +62,7 @@ beforeEach(() => {
   state.agentRef = "cos";
   state.companyId = "company-a";
   state.userId = "user-a";
+  state.setBreadcrumbs.mockClear();
   state.liveHandler = null;
   sessionStorage.clear();
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -125,6 +127,7 @@ describe("lightweight Agent Chat route", () => {
     expect(container.querySelector('[data-testid="agent-chat-title"]')?.textContent).toBe("Chief of Staff");
     expect(container.textContent).toContain("CoS cached note");
     expect(container.textContent).not.toContain("Finance cached note");
+    expect(state.setBreadcrumbs).toHaveBeenLastCalledWith([{ label: "Chief of Staff" }]);
 
     state.agentRef = "finance";
     await render();
@@ -132,6 +135,7 @@ describe("lightweight Agent Chat route", () => {
     expect(container.textContent).toContain("Finance cached note");
     expect(container.textContent).not.toContain("CoS cached note");
     expect(container.querySelector('[data-testid="agent-chat-fast-path"]')).not.toBeNull();
+    expect(state.setBreadcrumbs).toHaveBeenLastCalledWith([{ label: "Finance Operations" }]);
   });
 
   it("does not reuse conversation cache across user or company scopes", async () => {

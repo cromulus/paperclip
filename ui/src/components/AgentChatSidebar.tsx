@@ -12,6 +12,7 @@ export function AgentChatSidebar({
   recentIds,
   onToggleStar,
   onOpenChat,
+  onIntentAgent,
   agents,
   href = (id: string) =>
     `/chats/${encodeURIComponent(agentRouteRef(agents.find((agent) => agent.id === id)!))}`,
@@ -23,6 +24,7 @@ export function AgentChatSidebar({
   recentIds: string[];
   onToggleStar: (id: string) => void;
   onOpenChat: () => void;
+  onIntentAgent: (agent: Agent) => void;
 }) {
   const { collapsed, peeking } = useSidebar();
   const rail = collapsed && !peeking;
@@ -34,6 +36,7 @@ export function AgentChatSidebar({
         <SidebarNavItem
           to={href(agent.id)}
           label={agent.name}
+          onIntent={() => onIntentAgent(agent)}
           active={activeId === agent.id}
           iconNode={
             <AgentIcon icon={agent.icon} className="h-4 w-4 shrink-0" />

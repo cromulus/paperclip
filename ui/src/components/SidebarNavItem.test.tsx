@@ -193,11 +193,12 @@ describe("SidebarNavItem", () => {
     expect(link().getAttribute("aria-label")).toBe("Dashboard, 3 live");
   });
 
-  it("runs destination prefetch on pointer and keyboard intent", () => {
+  it("runs destination prefetch on pointer, keyboard, and touch intent", () => {
     const onIntent = vi.fn();
     render(<SidebarNavItem to="/dashboard" label="Dashboard" icon={Inbox} onIntent={onIntent} />);
     act(() => link().dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
     act(() => link().focus());
-    expect(onIntent).toHaveBeenCalledTimes(2);
+    act(() => link().dispatchEvent(new Event("touchstart", { bubbles: true })));
+    expect(onIntent).toHaveBeenCalledTimes(3);
   });
 });
