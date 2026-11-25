@@ -4231,6 +4231,19 @@ registry.registerPath({
 
 registry.registerPath({
   method: "get",
+  path: "/api/companies/{companyId}/chats/{agentRef}/bootstrap",
+  tags: ["issues"],
+  summary: "Load the bounded Agent Chat header and recent conversation state",
+  description: "Read-only and owner-scoped. Returns the canonical recent comment page, a cursor for older comments, pending interaction summaries, and minimal live-run/queue state. Does not create a chat or wake an agent.",
+  request: {
+    params: z.object({ companyId: z.string(), agentRef: z.string() }),
+    query: z.object({ limit: z.coerce.number().int().min(1).max(50).optional(), before: z.string().uuid().optional() }).passthrough(),
+  },
+  responses: { 200: r.ok(), 401: r.unauthorized, 403: r.forbidden, 404: r.notFound },
+});
+
+registry.registerPath({
+  method: "get",
   path: "/api/companies/{companyId}/issues",
   tags: ["issues"],
   summary: "List issues in a company",

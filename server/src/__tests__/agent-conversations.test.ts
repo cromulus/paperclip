@@ -188,6 +188,7 @@ const support = await getEmbeddedPostgresTestSupport();
         return app;
       };
       const path = `/api/companies/${companyId}/chats/${agentId}`;
+      const bootstrapPath = `${path}/bootstrap`;
       const owner = randomUUID();
       const colleague = randomUUID();
       const app = appFor(owner);
@@ -209,6 +210,11 @@ const support = await getEmbeddedPostgresTestSupport();
         });
       }
       expect((await request(app).get(path)).body).toBeNull();
+      const emptyBootstrap = await request(app).get(bootstrapPath);
+      expect(emptyBootstrap.status).toBe(200);
+      expect(emptyBootstrap.body.chat).toBeNull();
+      expect(emptyBootstrap.body.messages).toEqual([]);
+      expect(emptyBootstrap.body.sendGuard.enabled).toBe(true);
       expect(
         await issueService(db).getConversation(companyId, agentId, owner),
       ).toBeNull();
@@ -224,6 +230,10 @@ const support = await getEmbeddedPostgresTestSupport();
       expect(owned.status).toBe(200);
       expect(owned.body.map((chat: { id: string }) => chat.id)).toEqual([resolved[0].body.id]);
       expect((await request(appFor(colleague)).get(listPath)).body).toEqual([]);
+      const colleagueBootstrap = await request(appFor(colleague)).get(bootstrapPath);
+      expect(colleagueBootstrap.status).toBe(200);
+      expect(colleagueBootstrap.body.chat).toBeNull();
+      expect((await request(appFor(randomUUID(), false)).get(bootstrapPath)).status).toBe(403);
       expect((await request(appFor(randomUUID(), false)).get(listPath)).status).toBe(403);
       await instanceSettingsService(db).updateExperimental({ enableAgentChat: false });
       expect((await request(app).get(listPath)).status).toBe(404);
@@ -246,6 +256,21 @@ const support = await getEmbeddedPostgresTestSupport();
         ).status,
       ).toBe(422);
       const chatId = resolved[0].body.id;
+      const [planReview] = await db.insert(issueThreadInteractions).values({
+        companyId, issueId: chatId, kind: "request_confirmation", status: "pending",
+        continuationPolicy: "wake_assignee_on_accept", payload: { version: 1, prompt: "Hand off this plan?" },
+      }).returning();
+      const firstBootstrap = await request(app).get(bootstrapPath);
+      expect(firstBootstrap.status).toBe(200);
+      expect(firstBootstrap.body.chat.id).toBe(chatId);
+      expect(firstBootstrap.body.messages).toHaveLength(0);
+      expect(firstBootstrap.body.activeRun).toBeNull();
+      expect(firstBootstrap.body.pendingInteractions.map((item: { id: string }) => item.id)).toContain(planReview.id);
+      expect(firstBootstrap.body.sendGuard.pendingInteractionCount).toBe(1);
+      const otherOwnerBootstrap = await request(appFor(colleague)).get(`/api/companies/${companyId}/chats/${agentId}/bootstrap`);
+      expect(otherOwnerBootstrap.status).toBe(200);
+      expect(otherOwnerBootstrap.body.chat).toBeNull();
+      expect(otherOwnerBootstrap.body.messages).toEqual([]);
       const queuedInterrupt = { queueId: randomUUID(), revision: "queue-revision", targetRunId: randomUUID() };
       expect((await request(appFor(colleague)).post(`/api/issues/${chatId}/queued-comments/interrupt`)
         .send(queuedInterrupt)).status).toBe(403);
@@ -257,10 +282,6 @@ const support = await getEmbeddedPostgresTestSupport();
         .post(`/api/companies/${companyId}/issues/${chatId}/attachments`)
         .attach("file", Buffer.from("foreign upload"), "note.txt")).status).toBe(403);
 
-      const [planReview] = await db.insert(issueThreadInteractions).values({
-        companyId, issueId: chatId, kind: "request_confirmation", status: "pending",
-        continuationPolicy: "wake_assignee_on_accept", payload: { version: 1, prompt: "Hand off this plan?" },
-      }).returning();
       expect((await request(appFor(colleague))
         .post(`/api/issues/${chatId}/interactions/${planReview.id}/accept`).send({})).status).toBe(403);
       expect((await db.select().from(issueThreadInteractions).where(eq(issueThreadInteractions.id, planReview.id)))[0].status).toBe("pending");
@@ -272,6 +293,9 @@ const support = await getEmbeddedPostgresTestSupport();
       const blockedSend = await request(app).post(`/api/issues/${chatId}/comments`)
         .send({ body: "Continue working", clientRequestId: randomUUID() });
       expect(blockedSend.status).toBe(409);
+      const pausedBootstrap = await request(app).get(bootstrapPath);
+      expect(pausedBootstrap.status).toBe(200);
+      expect(pausedBootstrap.body.sendGuard).toMatchObject({ enabled: false, disabledReason: "conversation_paused" });
       expect(await db.select().from(issueComments).where(eq(issueComments.issueId, chatId))).toHaveLength(0);
       const resetRequest = { body: "/new", clientRequestId: randomUUID() };
       const reset = await request(app).post(`/api/issues/${chatId}/comments`).send(resetRequest);
@@ -284,9 +308,53 @@ const support = await getEmbeddedPostgresTestSupport();
       ));
       expect(addedEvents).toHaveLength(1);
 
+      for (let index = 0; index < 45; index += 1) {
+        await issueService(db).addComment(chatId, `bounded fixture ${index}`, { userId: owner });
+      }
+      const pgClient = db.$client as unknown as {
+        unsafe: (...args: unknown[]) => unknown;
+      };
+      const originalUnsafe = pgClient.unsafe;
+      let bootstrapQueryCount = 0;
+      let bootstrapStatus: number | null = null;
+      let bootstrapMessageCount = 0;
+      let bootstrapHasOlder = false;
+      pgClient.unsafe = function (...args: unknown[]) {
+        bootstrapQueryCount += 1;
+        return originalUnsafe.apply(this, args);
+      };
+      const bootstrapStartedAt = performance.now();
+      try {
+        const measuredBootstrap = await request(app).get(`${bootstrapPath}?limit=5`);
+        bootstrapStatus = measuredBootstrap.status;
+        bootstrapMessageCount = measuredBootstrap.body.messages.length;
+        bootstrapHasOlder = measuredBootstrap.body.page.hasOlder;
+      } finally {
+        pgClient.unsafe = originalUnsafe;
+      }
+      const bootstrapDurationMs = performance.now() - bootstrapStartedAt;
+      expect(bootstrapStatus).toBe(200);
+      expect(bootstrapMessageCount).toBe(5);
+      expect(bootstrapHasOlder).toBe(true);
+      expect(bootstrapQueryCount).toBeGreaterThan(0);
+      expect(bootstrapQueryCount).toBeLessThan(30);
+      expect(bootstrapDurationMs).toBeLessThan(1500);
+
       expect((await db.select().from(issueTreeHolds).where(eq(issueTreeHolds.id, pause.id)))[0].status).toBe("released");
       const local = await request(appFor()).post(path);
       expect(local.body.conversationUserId).toBe("local-board");
+      const liveRun = await runFor(chatId, randomUUID());
+      await db.update(issues).set({ executionRunId: liveRun.id }).where(eq(issues.id, chatId));
+      const liveBootstrap = await request(app).get(bootstrapPath);
+      expect(liveBootstrap.status).toBe(200);
+      expect(liveBootstrap.body.activeRun).toMatchObject({
+        id: liveRun.id,
+        status: "running",
+        agentId,
+        agentName: "Planner",
+        adapterType: "process",
+      });
+      expect(liveBootstrap.body.activeRun).not.toHaveProperty("lastAssistantSnippet");
       await instanceSettingsService(db).updateExperimental({
         enableAgentChat: false,
       });
@@ -325,6 +393,28 @@ const support = await getEmbeddedPostgresTestSupport();
           { clientRequestId },
         ),
       ).rejects.toThrow(/different content/);
+    });
+    it("pages canonical chat comments by a strict descending before cursor", async () => {
+      const issue = await create();
+      for (const body of ["message 1", "message 2", "message 3", "message 4"]) {
+        await issueService(db).addComment(issue.id, body, { userId: "local-board" });
+      }
+      const service = issueService(db);
+      const newest = await service.listComments(issue.id, { order: "desc", limit: 4 });
+      expect(newest.map((comment) => comment.body)).toEqual([
+        "message 4", "message 3", "message 2", "message 1",
+      ]);
+      const older = await service.listComments(issue.id, {
+        order: "desc",
+        beforeCommentId: newest[1]!.id,
+        limit: 4,
+      });
+      expect(older.map((comment) => comment.id)).toEqual(newest.slice(2).map((comment) => comment.id));
+      expect(await service.listComments(issue.id, {
+        order: "desc",
+        beforeCommentId: "invalid-cursor",
+        limit: 4,
+      })).toEqual([]);
     });
     it("resets only this task, keeps history, and fences stale replies and retries", async () => {
       const issue = await create();

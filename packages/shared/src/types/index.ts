@@ -731,6 +731,8 @@ export type {
   IssueReviewRequest,
   IssueExecutionDecision,
   IssueComment,
+  AgentChatBootstrapActiveRun,
+  AgentChatBootstrapResponse,
   IssueQueuedCommentEntry,
   IssueQueuedCommentProtocol,
   IssueQueuedCommentQueue,

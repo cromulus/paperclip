@@ -40,6 +40,7 @@ import {
   issues,
   toolActionRequests,
   toolOauthStates,
+  workspaceOperations,
 } from "@paperclipai/db";
 import {
   trackInteractionCreated,
@@ -120,6 +121,7 @@ import {
   ensureAssignmentIssueAccessGrant,
   readAcceptedPlanConfirmationTarget,
   runWorkspaceIsFinalized,
+  TERMINAL_HEARTBEAT_RUN_STATUSES,
 } from "./issues.js";
 import { questionResponseDeliveryValues } from "./question-response-delivery.js";
 import {
@@ -2041,11 +2043,52 @@ export function issueThreadInteractionService(
     const { companyId, executionWorkspaceId } = workspace;
     const sourceRunIds = [...new Set(guarded.map((interaction) => interaction.sourceRunId!))];
     const pendingRunIds = new Set<string>();
-    await Promise.all(sourceRunIds.map(async (runId) => {
-      if (!await runWorkspaceIsFinalized(db, companyId, executionWorkspaceId, runId)) {
-        pendingRunIds.add(runId);
+    const operationRows = await db
+      .select({
+        heartbeatRunId: workspaceOperations.heartbeatRunId,
+        phase: workspaceOperations.phase,
+        status: workspaceOperations.status,
+        startedAt: workspaceOperations.startedAt,
+      })
+      .from(workspaceOperations)
+      .where(and(
+        eq(workspaceOperations.companyId, companyId),
+        eq(workspaceOperations.executionWorkspaceId, executionWorkspaceId),
+        inArray(workspaceOperations.heartbeatRunId, sourceRunIds),
+      ));
+    const operationsByRun = new Map<string, typeof operationRows>();
+    for (const operation of operationRows) {
+      if (!operation.heartbeatRunId) continue;
+      const runOperations = operationsByRun.get(operation.heartbeatRunId) ?? [];
+      runOperations.push(operation);
+      operationsByRun.set(operation.heartbeatRunId, runOperations);
+    }
+    const runningFinalizeRunIds: string[] = [];
+    for (const runId of sourceRunIds) {
+      const runOperations = operationsByRun.get(runId) ?? [];
+      if (runOperations.length === 0) continue;
+      const finalizes = runOperations
+        .filter((operation) => operation.phase === "workspace_finalize")
+        .sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
+      const latestFinalize = finalizes[0];
+      if (!latestFinalize || latestFinalize.status === "running") {
+        if (latestFinalize) runningFinalizeRunIds.push(runId);
+        else pendingRunIds.add(runId);
       }
-    }));
+    }
+    if (runningFinalizeRunIds.length > 0) {
+      const runRows = await db
+        .select({ id: heartbeatRuns.id, status: heartbeatRuns.status })
+        .from(heartbeatRuns)
+        .where(inArray(heartbeatRuns.id, runningFinalizeRunIds));
+      const runStatusById = new Map(runRows.map((run) => [run.id, run.status]));
+      for (const runId of runningFinalizeRunIds) {
+        const status = runStatusById.get(runId);
+        if (status && !TERMINAL_HEARTBEAT_RUN_STATUSES.has(status)) {
+          pendingRunIds.add(runId);
+        }
+      }
+    }
     const guardedIds = new Set(guarded.map((interaction) => interaction.id));
     return interactions.map((interaction) =>
       guardedIds.has(interaction.id) && pendingRunIds.has(interaction.sourceRunId!)
@@ -3066,6 +3109,54 @@ export function issueThreadInteractionService(
         ),
       );
       return withAcceptanceReadiness(interactions, issue);
+    },
+
+    listPendingForIssue: async (issueId: string, requestedLimit = 8) => {
+      const limit = Math.max(1, Math.min(20, Math.floor(requestedLimit)));
+      const [rows, issue, countRows] = await Promise.all([
+        db
+          .select()
+          .from(issueThreadInteractions)
+          .where(and(
+            eq(issueThreadInteractions.issueId, issueId),
+            eq(issueThreadInteractions.status, "pending"),
+          ))
+          .orderBy(asc(issueThreadInteractions.createdAt), asc(issueThreadInteractions.id))
+          .limit(limit + 1),
+        db
+          .select({
+            status: issues.status,
+            companyId: issues.companyId,
+            executionWorkspaceId: issues.executionWorkspaceId,
+          })
+          .from(issues)
+          .where(eq(issues.id, issueId))
+          .then((issueRows) => issueRows[0]),
+        db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(issueThreadInteractions)
+          .where(and(
+            eq(issueThreadInteractions.issueId, issueId),
+            eq(issueThreadInteractions.status, "pending"),
+          )),
+      ]);
+      const interactions = rows.slice(0, limit).map((row) =>
+        hydrateInteraction(
+          issue && isTerminalIssueStatus(issue.status)
+            ? {
+                ...row,
+                status: "expired",
+                result: buildAdministrativeOutcomeResult(row, "issue_closed"),
+                resolvedAt: row.updatedAt,
+              }
+            : row,
+        ),
+      );
+      return {
+        items: await withAcceptanceReadiness(interactions, issue),
+        total: Number(countRows[0]?.count ?? 0),
+        hasMore: Number(countRows[0]?.count ?? 0) > limit,
+      };
     },
 
     getById: async (interactionId: string) => {

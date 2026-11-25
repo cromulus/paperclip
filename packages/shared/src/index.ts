@@ -1130,6 +1130,8 @@ export type {
   IssueExecutionStagePrincipal,
   IssueExecutionDecision,
   IssueComment,
+  AgentChatBootstrapActiveRun,
+  AgentChatBootstrapResponse,
   IssueQueuedCommentEntry,
   IssueQueuedCommentProtocol,
   IssueQueuedCommentQueue,

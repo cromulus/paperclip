@@ -1063,6 +1063,76 @@ export interface IssueComment {
   updatedAt: Date;
 }
 
+export interface AgentChatBootstrapActiveRun {
+  id: string;
+  status: "queued" | "running";
+  runtimeMode: string;
+  agentId: string;
+  agentName: string;
+  adapterType: string;
+  startedAt: Date | null;
+  logBytes: number | null;
+  lastOutputBytes: number | null;
+  currentStatusMessage: string | null;
+  currentStatusUpdatedAt: Date | null;
+  currentToolName: string | null;
+  lastEventAt: Date | null;
+}
+
+export interface AgentChatBootstrapResponse {
+  agent: {
+    id: string;
+    name: string;
+    title: string | null;
+    icon: string | null;
+    role: string;
+    status: string;
+    adapterType: string;
+  };
+  chat: {
+    id: string;
+    identifier: string | null;
+    title: string;
+    status: string;
+    conversationState: string | null;
+    conversationSessionGeneration: number | null;
+    executionRunId: string | null;
+    updatedAt: Date;
+  } | null;
+  messages: IssueComment[];
+  page: {
+    limit: number;
+    hasOlder: boolean;
+    olderCursor: string | null;
+    latestCommentId: string | null;
+    latestCommentAt: Date | null;
+  };
+  sendGuard: {
+    enabled: boolean;
+    disabledReason: "conversation_paused" | null;
+    resetAllowed: boolean;
+    pendingInteractionCount: number;
+  };
+  pendingInteractions: IssueThreadInteraction[];
+  pendingInteractionsTruncated: boolean;
+  activeRun: AgentChatBootstrapActiveRun | null;
+  queue: {
+    queueId: string | null;
+    state: IssueQueuedCommentQueueState | null;
+    targetRunId: string | null;
+    revision: string;
+    protocol: IssueQueuedCommentProtocol;
+    steeringDisposition: IssueQueuedCommentSteeringDisposition;
+    entries: Array<{
+      commentId: string;
+      position: number;
+      canEdit: boolean;
+      canDiscard: boolean;
+    }>;
+    executionWait?: { reason: string; message: string } | null;
+  } | null;
+}
+
 export type IssueQueuedCommentProtocol = "paperclip_runner_v1" | "legacy";
 export type IssueQueuedCommentQueueState = "deferred" | "queued";
 export type IssueQueuedCommentSteeringDisposition =

@@ -12306,21 +12306,25 @@ export function issueService(db: Db) {
       issueId: string,
       opts?: {
         afterCommentId?: string | null;
+        beforeCommentId?: string | null;
         order?: "asc" | "desc";
         limit?: number | null;
       },
     ) => {
       const order = opts?.order === "asc" ? "asc" : "desc";
       const afterCommentId = opts?.afterCommentId?.trim() || null;
+      const beforeCommentId = opts?.beforeCommentId?.trim() || null;
       const limit =
         opts?.limit && opts.limit > 0
           ? Math.min(Math.floor(opts.limit), MAX_ISSUE_COMMENT_PAGE_LIMIT)
           : null;
 
       const conditions = [eq(issueComments.issueId, issueId)];
-      if (afterCommentId) {
+      if (afterCommentId && beforeCommentId) return [];
+      const cursorCommentId = afterCommentId ?? beforeCommentId;
+      if (cursorCommentId) {
         // Guard: reject non-UUID cursors before hitting the DB to avoid Postgres type errors.
-        if (!isUuidLike(afterCommentId)) return [];
+        if (!isUuidLike(cursorCommentId)) return [];
         const anchor = await db
           .select({
             id: issueComments.id,
@@ -12330,7 +12334,7 @@ export function issueService(db: Db) {
           .where(
             and(
               eq(issueComments.issueId, issueId),
-              eq(issueComments.id, afterCommentId),
+              eq(issueComments.id, cursorCommentId),
             ),
           )
           .then((rows) => rows[0] ?? null);

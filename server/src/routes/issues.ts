@@ -154,6 +154,7 @@ import {
   type IssueReviewPolicy,
   type IssueThreadInteractionCanonicalResolverPolicy,
   type IssueComment,
+  type AgentChatBootstrapResponse,
   type IssueCommentPresentation,
   type IssueQueuedCommentQueue,
   type IssueWatchdogDiscoveryKind,
@@ -18228,6 +18229,164 @@ export function issueRoutes(
     if (!(await instanceSettings.getExperimental()).enableAgentChat) throw notFound("Agent Chat is disabled");
     const conversations = await svc.listConversations(companyId, req.actor.userId);
     res.json(await filterIssuesForActor(req, conversations));
+  });
+
+  router.get("/companies/:companyId/chats/:agentRef/bootstrap", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    if (req.actor.type !== "board" || !req.actor.userId) {
+      throw forbidden("Board user access required");
+    }
+    if (!(await instanceSettings.getExperimental()).enableAgentChat) {
+      throw notFound("Agent Chat is disabled");
+    }
+
+    const resolved = await agentsSvc.resolveByReference(companyId, req.params.agentRef as string);
+    if (resolved.ambiguous) throw conflict("Agent reference is ambiguous");
+    if (!resolved.agent) throw notFound("Agent not found");
+    const agent = resolved.agent;
+    const chat = await svc.getConversation(companyId, agent.id, req.actor.userId);
+    if (chat && chat.conversationUserId !== req.actor.userId) {
+      throw notFound("Conversation not found");
+    }
+    if (chat && !(await assertIssueReadAllowed(req, res, chat))) return;
+
+    const requestedLimit = Number(req.query.limit ?? 30);
+    const limit = Number.isInteger(requestedLimit)
+      ? Math.max(1, Math.min(50, requestedLimit))
+      : 30;
+    const beforeCommentId = typeof req.query.before === "string"
+      ? req.query.before
+      : null;
+    if (beforeCommentId && !isUuidLike(beforeCommentId)) {
+      throw unprocessable("Invalid comment cursor");
+    }
+
+    let messages: IssueComment[] = [];
+    let hasOlder = false;
+    let latestCommentId: string | null = null;
+    let latestCommentAt: Date | null = null;
+    let pendingInteractions: Awaited<ReturnType<typeof issueThreadInteractionsSvc.listPendingForIssue>>["items"] = [];
+    let pendingInteractionCount = 0;
+    let pendingInteractionsTruncated = false;
+    let activeRun: AgentChatBootstrapResponse["activeRun"] = null;
+    let queue: AgentChatBootstrapResponse["queue"] = null;
+    let paused = false;
+
+    if (chat) {
+      const [commentPage, commentCursor, pending, linkedRun, activePause] = await Promise.all([
+        svc.listComments(chat.id, {
+          beforeCommentId,
+          order: "desc",
+          limit: limit + 1,
+        }),
+        svc.getCommentCursor(chat.id),
+        issueThreadInteractionsSvc.listPendingForIssue(chat.id, 8),
+        chat.executionRunId ? heartbeat.getRunIssueSummary(chat.executionRunId) : Promise.resolve(null),
+        treeControlSvc.getActivePauseHoldGate(chat.companyId, chat.id),
+      ]);
+      messages = commentPage.slice(0, limit);
+      hasOlder = commentPage.length > limit;
+      latestCommentId = commentCursor.latestCommentId;
+      latestCommentAt = commentCursor.latestCommentAt;
+      pendingInteractions = pending.items;
+      pendingInteractionCount = pending.total;
+      pendingInteractionsTruncated = pending.hasMore;
+      paused = Boolean(activePause);
+
+      if (
+        linkedRun &&
+        linkedRun.issueId === chat.id &&
+        linkedRun.agentId === agent.id &&
+        (linkedRun.status === "queued" || linkedRun.status === "running")
+      ) {
+        const decorated = heartbeat.decorateActiveRunStatus(linkedRun, {
+          companyId: chat.companyId,
+          issueId: chat.id,
+          agentId: agent.id,
+        });
+        activeRun = {
+          id: decorated.id,
+          status: decorated.status as "queued" | "running",
+          runtimeMode: decorated.runtimeMode,
+          agentId: agent.id,
+          agentName: agent.name,
+          adapterType: agent.adapterType,
+          startedAt: decorated.startedAt,
+          logBytes: decorated.logBytes,
+          lastOutputBytes: decorated.lastOutputBytes,
+          currentStatusMessage: decorated.currentStatusMessage,
+          currentStatusUpdatedAt: decorated.currentStatusUpdatedAt,
+          currentToolName: decorated.currentToolName,
+          lastEventAt: decorated.lastEventAt,
+        };
+      }
+
+      const fullQueue = await buildQueuedCommentQueue({
+        executor: db,
+        issue: chat,
+        activeRun: null,
+        actor: getActorInfo(req),
+      });
+      queue = {
+        queueId: fullQueue.queueId,
+        state: fullQueue.state,
+        targetRunId: fullQueue.targetRunId,
+        revision: fullQueue.revision,
+        protocol: fullQueue.protocol,
+        steeringDisposition: fullQueue.steeringDisposition,
+        entries: fullQueue.entries.map((entry) => ({
+          commentId: entry.comment.id,
+          position: entry.position,
+          canEdit: entry.canEdit,
+          canDiscard: entry.canDiscard,
+        })),
+        executionWait: fullQueue.executionWait ?? null,
+      };
+    }
+
+    const response: AgentChatBootstrapResponse = {
+      agent: {
+        id: agent.id,
+        name: agent.name,
+        title: agent.title,
+        icon: agent.icon,
+        role: agent.role,
+        status: agent.status,
+        adapterType: agent.adapterType,
+      },
+      chat: chat ? {
+        id: chat.id,
+        identifier: chat.identifier ?? null,
+        title: chat.title,
+        status: chat.status,
+        conversationState: chat.conversationState ?? null,
+        conversationSessionGeneration: chat.conversationSessionGeneration ?? null,
+        executionRunId: chat.executionRunId ?? null,
+        updatedAt: chat.updatedAt,
+      } : null,
+      messages,
+      page: {
+        limit,
+        hasOlder,
+        olderCursor: messages.at(-1)?.id ?? null,
+        latestCommentId,
+        latestCommentAt,
+      },
+      sendGuard: {
+        enabled: !paused,
+        disabledReason: paused ? "conversation_paused" : null,
+        resetAllowed: true,
+        pendingInteractionCount,
+      },
+      pendingInteractions,
+      pendingInteractionsTruncated,
+      activeRun,
+      queue,
+    };
+    res.json(chat
+      ? await runRedactions.redactForIssue(chat.companyId, chat.id, response)
+      : response);
   });
 
   // GET stays read-only. POST resolves the single chat on explicit add or first send/upload.
