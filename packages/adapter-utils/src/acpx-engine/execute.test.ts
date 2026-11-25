@@ -3136,6 +3136,20 @@ describe("shared ACPX engine runtime behavior", () => {
     expect(third.runtimeOptions[0]?.mcpServers).toEqual([]);
   });
 
+  it("starts a local ACP turn with controller-local runtime MCP tools and no remote bridge", async () => {
+    const root = await makeTempRoot();
+    const server = { name: "paperclip-runtime", url: "http://127.0.0.1:3100/mcp/runtime-tools", connectionId: "runtime", token: "local-run-token" };
+    const result = await runExecutor({
+      agent: "codex", agentCommand: "node ./fake-acp.js", cwd: root, stateDir: path.join(root, "state"),
+      paperclipRuntimeSkills: [], paperclipSkillSync: { desiredSkills: [] },
+    }, { runtimeMcp: { getServers: () => [server] } });
+    expect(result.turnInputs).toHaveLength(1);
+    expect(result.runtimeOptions[0]?.mcpServers).toEqual([{
+      type: "http", name: server.name, url: server.url,
+      headers: [{ name: "Authorization", value: "Bearer local-run-token" }],
+    }]);
+  });
+
   it("bounds Claude MCP tool calls only when runtime MCP servers are attached", async () => {
     const server = { name: "paperclip-assigned", url: "https://example.test/mcp/gateways/g", connectionId: "assignment:x", token: "t" };
     const runtimeMcp = { getServers: () => [server] };
