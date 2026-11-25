@@ -11,6 +11,12 @@ backported source function into the bundle that this release actually executes.
 Build assertions refuse a changed base. Runtime configuration and credentials
 remain in the deployment manager; none belong in this repository.
 
+`front-door-nginx.conf` and `webhook-nginx.conf` are deployment-side nginx
+configuration, separate from the Paperclip application image. The webhook
+ingress allowlist is limited to signed POSTs for Slack/GitHub and AgentMail
+Svix webhooks, plus the existing routine and MCP routes. Keep public webhook
+paths out of browser, OAuth callback, and general API routing.
+
 Build from the repository root:
 
 ```sh
