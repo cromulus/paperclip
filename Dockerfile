@@ -88,7 +88,8 @@ COPY server/src/services/copilot-connection-probe.ts server/src/services/
 
 # CI owns repository lock updates. Resolve manifest changes in the image's
 # private build tree, then install from that exact generated lock.
-RUN pnpm install --resolution-only --ignore-scripts --no-frozen-lockfile && pnpm install --frozen-lockfile
+RUN NODE_OPTIONS=--max-old-space-size=2048 pnpm install --resolution-only --ignore-scripts --no-frozen-lockfile --network-concurrency=8 \
+ && NODE_OPTIONS=--max-old-space-size=2048 pnpm install --frozen-lockfile --child-concurrency=2 --network-concurrency=8
 
 # Runner image (`--target runner-artifacts`).
 #
@@ -239,7 +240,7 @@ RUN set -eu; \
     if [ -n "$publication" ] && [ -z "$revision" ]; then echo "ERROR: a publication build needs PAPERCLIP_RUNNER_SOURCE_REVISION" >&2; exit 1; fi; \
     find packages/paperclip-runner/runner packages/paperclip-runner/protocol -type f -exec touch -d @0 {} +; \
     touch -d @0 packages/paperclip-runner/rust-toolchain.toml packages/paperclip-runner/acpx-profiles.json packages/paperclip-runner/antigravity-distributions.json; \
-    pnpm install --frozen-lockfile --filter '@paperclipai/paperclip-runner...' || { \
+    NODE_OPTIONS=--max-old-space-size=2048 pnpm install --frozen-lockfile --filter '@paperclipai/paperclip-runner...' --child-concurrency=2 --network-concurrency=8 || { \
       echo "ERROR: the frozen install failed. If pnpm reported ERR_PNPM_OUTDATED_LOCKFILE, the committed pnpm-lock.yaml is behind the Runner's manifests. The repository's lockfile refresh fixes that on master. For a local build only, resolve it first: pnpm install --resolution-only --ignore-scripts --no-frozen-lockfile" >&2; \
       exit 1; \
     }; \

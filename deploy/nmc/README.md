@@ -19,7 +19,7 @@ revision=$(git rev-parse HEAD)
 upstream=304854ee9926dfe677e98c282e1dc08dda0000ad
 docker build --target production \
   --build-arg PAPERCLIP_BUILD_COMMIT="$revision" \
-  --build-arg PAPERCLIP_RUNNER_SOURCE_REVISION="$upstream" \
+  --build-arg PAPERCLIP_RUNNER_SOURCE_REVISION="$revision" \
   -t nmc/paperclip-source:"$revision" .
 docker build -f deploy/nmc/Dockerfile \
   --build-arg NMC_SOURCE_IMAGE=nmc/paperclip-source:"$revision" \

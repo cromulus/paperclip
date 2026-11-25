@@ -220,14 +220,6 @@ import { hasRetainedExternalChatRetry, type IssueAttributionSnapshot, type PostC
 import { crashPoint } from "@paperclipai/shared/crash-points";
 import { emitSystemTaskBlockedAfterCommit } from "../product-telemetry.js";
 
-const OPEN_ROUTINE_EXECUTION_CONSTRAINT = "issues_open_routine_execution_uq";
-
-class RoutineExecutionClaimContention extends Error {}
-
-function isOpenRoutineExecutionClaimContention(error: unknown): boolean {
-  return error instanceof RoutineExecutionClaimContention || isUniqueViolation(error, OPEN_ROUTINE_EXECUTION_CONSTRAINT);
-}
-
 type HeartbeatRun = typeof heartbeatRuns.$inferSelect;
 type QueuedRunCandidate = Pick<HeartbeatRun, "id" | "companyId" | "agentId" | "status" | "invocationSource" | "createdAt"
   | "startedAt" | "wakeupRequestId" | "retryOfRunId" | "scheduledRetryAt" | "scheduledRetryAttempt" | "scheduledRetryReason"
@@ -1506,7 +1498,7 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
         // example a failed run that waits for its scheduled resume. Roll back
         // this claim and keep the run queued until that slot is released.
         if (isUniqueViolation(error, "issues_open_routine_execution_uq")) {
-          throw new RoutineExecutionClaimContention("Another execution for this routine is already in progress");
+          throw conflict("Another execution for this routine is already in progress");
         }
         throw error;
       });
@@ -1816,7 +1808,7 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
                 : { kind: "stale" as const, run: null };
             })
             .catch((error) => {
-              if (isExternalChatWaitAuthorizationContention(error) || isOpenRoutineExecutionClaimContention(error) || error instanceof RunAdmissionClosedDuringClaim)
+              if (isExternalChatWaitAuthorizationContention(error) || error instanceof RunAdmissionClosedDuringClaim)
                 return { kind: "stale" as const, run: null };
               if (error instanceof AgentRunSlotsFull) {
                 if (slots) slots.full = true;
@@ -1907,7 +1899,7 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
             return claimedRun;
           });
         }).catch((error: unknown) => {
-          if (error instanceof RunAdmissionClosedDuringClaim || isOpenRoutineExecutionClaimContention(error)) return null;
+          if (error instanceof RunAdmissionClosedDuringClaim) return null;
           if (error instanceof AgentRunSlotsFull) {
             if (slots) slots.full = true;
             return null;

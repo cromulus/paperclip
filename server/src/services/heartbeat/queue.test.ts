@@ -1407,7 +1407,7 @@ describe.skipIf(!support.supported)("heartbeat queue database wiring", () => {
     const deps = callbacks(db);
     deps.getAgent.mockResolvedValue(agent);
 
-    await expect(createHeartbeatQueue(db, deps).claimQueuedRun(pendingRun)).resolves.toBeNull();
+    await expect(createHeartbeatQueue(db, deps).claimQueuedRun(pendingRun)).rejects.toMatchObject({ status: 409 });
 
     const [currentRun] = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, pendingRun.id));
     const [currentWake] = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.id, wake.id));
