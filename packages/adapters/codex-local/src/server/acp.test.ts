@@ -25,6 +25,8 @@ vi.mock("@paperclipai/adapter-utils/workspace-restore-teardown", async (importOr
 import {
   buildCodexAcpConfig,
   createCodexAcpExecutor,
+  prepareCodexRemoteManagedHome,
+  prepareCodexRemoteManagedHomeForRun,
   nodeVersionMeetsCodexAcpMinimum,
   resolveCodexAcpBillingIdentity,
   resolveCodexExecutionEngine,
@@ -981,6 +983,119 @@ describe("codex_local ACP lane", () => {
     );
     // C4 — no XDG_* variable is introduced for in-sandbox credential discovery.
     expect(Object.keys(meta[0]?.env ?? {}).filter((key) => key.startsWith("XDG_"))).toEqual([]);
+  });
+
+  it("scrubs host MCP credentials before upload and refreshes native config for each bridged run", async () => {
+    const root = await makeTempRoot("paperclip-codex-acp-mcp-home-");
+    const hostHome = path.join(root, "host-codex-home");
+    const workspace = path.join(root, "workspace");
+    const remoteHome = path.join(root, "remote", ".paperclip-runtime", "home");
+    await fs.mkdir(hostHome, { recursive: true });
+    await fs.mkdir(workspace, { recursive: true });
+    await fs.writeFile(
+      path.join(hostHome, "config.toml"),
+      [
+        "[mcp_servers.external-review]",
+        'url = "https://review.example.test/mcp"',
+        'http_headers = { Authorization = "Bearer external-review-token" }',
+        "",
+        "# BEGIN PAPERCLIP MANAGED MCP",
+        "[mcp_servers.paperclip-project-tools]",
+        'url = "http://127.0.0.1:3100/api/mcp/project-tools"',
+        'http_headers = { Authorization = "Bearer old-project-token" }',
+        "# END PAPERCLIP MANAGED MCP",
+        "",
+      ].join("\n"),
+      { mode: 0o600 },
+    );
+
+    const runner = createLocalSandboxRunner();
+    const executionTarget = {
+      kind: "remote",
+      transport: "sandbox",
+      providerKey: "fixture",
+      remoteCwd: workspace,
+      runner,
+    } as never;
+    let initialUploadConfig = "";
+    const prepared = await prepareCodexRemoteManagedHome({
+      env: { CODEX_HOME: hostHome, OPENAI_API_KEY: "test-api-key" },
+      runId: `acp-mcp-${randomUUID()}`,
+      onLog: async () => {},
+      config: {},
+      executionTarget,
+      companyId: "company-1",
+      workspaceLocalDir: workspace,
+      timeoutSec: 30,
+      onRuntimeProgress: async () => {},
+      skillsBundleDir: null,
+      stage: async (assets: Array<{ key: string; localDir: string }>) => {
+        const homeAsset = assets.find((asset) => asset.key === "home");
+        expect(homeAsset).toBeDefined();
+        await fs.mkdir(remoteHome, { recursive: true });
+        await fs.cp(homeAsset!.localDir, remoteHome, { recursive: true });
+        initialUploadConfig = await fs.readFile(path.join(remoteHome, "config.toml"), "utf8");
+        return {
+          target: executionTarget,
+          workspaceRemoteDir: workspace,
+          runtimeRootDir: path.join(root, "remote", ".paperclip-runtime"),
+          assetDirs: { home: remoteHome },
+          additionalSourceDirs: {},
+          additionalSourceFailures: [],
+          workspaceSyncSnapshot: null,
+          restoreWorkspace: async () => {},
+        } as never;
+      },
+    } as never);
+
+    expect(initialUploadConfig).toContain("https://review.example.test/mcp");
+    expect(initialUploadConfig).toContain("external-review-token");
+    expect(initialUploadConfig).not.toContain("old-project-token");
+    expect(initialUploadConfig).not.toContain("127.0.0.1:3100");
+
+    const runtimeMcpServers = [
+      { name: "project-tools", url: "http://127.0.0.1:3100/api/mcp/project-tools", token: "project-original-token", connectionId: "project" },
+      { name: "runtime-tools", url: "http://127.0.0.1:3100/mcp/runtime-tools", token: "runtime-original-token", connectionId: "runtime" },
+      { name: "doktor-gateway", url: "http://127.0.0.1:3100/mcp/gateways/gw_doktor", token: "gateway-original-token", connectionId: "gateway" },
+      { name: "remote-catalog", url: "https://mcp.example.test/v1", token: "remote-catalog-token", connectionId: "external" },
+    ];
+    const callbackInput = {
+      acpxAgent: "codex",
+      executionTarget,
+      hostManagedHomeDir: hostHome,
+      stagedRuntime: prepared.stagedRuntime,
+      runtimeMcpServers,
+      timeoutSec: 30,
+    };
+    await prepareCodexRemoteManagedHomeForRun({
+      ...callbackInput,
+      bridgeEnv: { PAPERCLIP_API_URL: "http://127.0.0.1:43991", PAPERCLIP_API_KEY: "bridge-token-first" },
+    } as never);
+    const firstConfig = await fs.readFile(path.join(remoteHome, "config.toml"), "utf8");
+    expect(firstConfig).toContain("http://127.0.0.1:43991/api/mcp/project-tools");
+    expect(firstConfig).toContain("http://127.0.0.1:43991/mcp/runtime-tools");
+    expect(firstConfig).toContain("http://127.0.0.1:43991/mcp/gateways/gw_doktor");
+    expect(firstConfig.match(/Bearer bridge-token-first/g)).toHaveLength(3);
+    expect(firstConfig).toContain("https://review.example.test/mcp");
+    expect(firstConfig).toContain("https://mcp.example.test/v1");
+    expect(firstConfig).toContain("Bearer remote-catalog-token");
+    for (const originalToken of ["old-project-token", "project-original-token", "runtime-original-token", "gateway-original-token"]) {
+      expect(firstConfig).not.toContain(originalToken);
+    }
+
+    await prepareCodexRemoteManagedHomeForRun({
+      ...callbackInput,
+      bridgeEnv: { PAPERCLIP_API_URL: "http://127.0.0.1:43992", PAPERCLIP_API_KEY: "bridge-token-second" },
+    } as never);
+    const secondConfig = await fs.readFile(path.join(remoteHome, "config.toml"), "utf8");
+    expect(secondConfig).toContain("http://127.0.0.1:43992/api/mcp/project-tools");
+    expect(secondConfig).toContain("Bearer bridge-token-second");
+    expect(secondConfig).not.toContain("43991");
+    expect(secondConfig).not.toContain("bridge-token-first");
+    expect(secondConfig).toContain("https://review.example.test/mcp");
+    expect(secondConfig).toContain("https://mcp.example.test/v1");
+    expect(secondConfig).toContain("Bearer remote-catalog-token");
+    await prepared.disposeStaged?.();
   });
 
   it("copies a strictly-newer sandbox Codex auth back to the shared host on teardown", async () => {

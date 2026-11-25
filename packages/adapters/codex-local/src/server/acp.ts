@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
@@ -8,6 +9,7 @@ import type {
   AdapterEnvironmentTestResult,
   AdapterExecutionContext,
   AdapterExecutionResult,
+  AdapterRuntimeMcpServer,
 } from "@paperclipai/adapter-utils";
 import {
   parseLocalProcessFilesystemScope,
@@ -19,6 +21,8 @@ import {
   readAdapterExecutionTarget,
   resolveAdapterExecutionTargetCwd,
 } from "@paperclipai/adapter-utils/execution-target";
+import { syncRemoteTextFileWithHashSkip } from "@paperclipai/adapter-utils/sandbox-callback-bridge";
+import { createSshCommandManagedRuntimeRunner } from "@paperclipai/adapter-utils/ssh";
 import {
   DEFAULT_ACP_ENGINE_MODE,
   DEFAULT_ACP_ENGINE_NON_INTERACTIVE_PERMISSIONS,
@@ -45,9 +49,13 @@ import { copyBackCodexAuth } from "./codex-auth-copyback.js";
 import {
   buildCodexHomeRefreshProvision,
   evaluateCodexCredentialReadiness,
+  routeManagedCodexMcpGatewaysThroughCallbackBridge,
   resolveSharedCodexHomeDir,
   stageCodexHomeForSync,
+  writeManagedCodexMcpConfig,
+  type ManagedCodexMcpGateway,
 } from "./codex-home.js";
+import { buildPaperclipMcpBridgeRoutes, isPaperclipMcpCallbackPath } from "@paperclipai/adapter-utils/paperclip-mcp-callback-bridge";
 import { ADAPTER_AUTH_MISSING_CHECK_CODE } from "./auth-check.js";
 import { checkCodexCliVersionForModel } from "./cli-version.js";
 
@@ -178,7 +186,7 @@ export function buildCodexAcpConfig(config: Record<string, unknown>): Record<str
  * that is never copied back would spend the host's token. API-key runs skip
  * both auth seams and never touch the shared subscription credential.
  */
-async function prepareCodexRemoteManagedHome(
+export async function prepareCodexRemoteManagedHome(
   input: AcpxRemoteManagedHomeContext,
 ): Promise<AcpxRemoteManagedHomeResult> {
   const { env, runId, onLog } = input;
@@ -197,8 +205,17 @@ async function prepareCodexRemoteManagedHome(
   );
   // Curated allowlist temp dir (auth/config/skills only); caller owns cleanup.
   const stagedCodexHomeDir = await stageCodexHomeForSync(effectiveCodexHome, { runId });
+  // Never ship a previously written Paperclip MCP bearer from the host's
+  // managed Codex config. The per-run callback below writes a fresh bridge
+  // endpoint and credential into the already-staged remote home after the
+  // bridge has started.
   let stagedRuntime;
   try {
+    await writeManagedCodexMcpConfig({
+      codexHome: stagedCodexHomeDir,
+      apiBaseUrl: "http://127.0.0.1",
+      gateways: [],
+    });
     stagedRuntime = await input.stage([
       {
         key: "home",
@@ -266,6 +283,107 @@ async function prepareCodexRemoteManagedHome(
   };
 }
 
+type CodexRemoteManagedHomeForRunInput = NonNullable<
+  AcpxEngineExecutorOptions["prepareRemoteManagedHomeForRun"]
+> extends (input: infer T) => Promise<void> ? T : never;
+
+/** Refresh the staged Codex native MCP config after each run's bridge starts. */
+export async function prepareCodexRemoteManagedHomeForRun(
+  input: CodexRemoteManagedHomeForRunInput,
+): Promise<void> {
+  if (input.acpxAgent !== "codex") return;
+  const remoteHome = input.stagedRuntime.assetDirs.home;
+  if (!remoteHome || !input.hostManagedHomeDir) return;
+  if (input.executionTarget.kind !== "remote") {
+    throw new Error("Codex remote MCP config refresh requires a remote execution target.");
+  }
+
+  const servers: AdapterRuntimeMcpServer[] = input.runtimeMcpServers;
+  const routes = buildPaperclipMcpBridgeRoutes(servers);
+  const routeByPath = new Map(routes.map((route) => [route.path, route]));
+  let internalGatewayCount = 0;
+  const gateways: ManagedCodexMcpGateway[] = servers.map((server) => {
+    let source: URL;
+    try {
+      source = new URL(server.url);
+    } catch {
+      throw new Error("Codex remote MCP config contains an invalid endpoint URL.");
+    }
+    const loopback = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(source.hostname.toLowerCase());
+    if (!loopback) {
+      return { name: server.name, endpointPath: server.url, bearerToken: server.token };
+    }
+    const route = routeByPath.get(source.pathname);
+    if (
+      source.protocol !== "http:" || !isPaperclipMcpCallbackPath(source.pathname) ||
+      source.search || source.hash || !route
+    ) {
+      throw new Error("Codex remote MCP config contains an unapproved or unassigned Paperclip endpoint.");
+    }
+    internalGatewayCount += 1;
+    return { name: server.name, endpointPath: server.url, bearerToken: server.token };
+  });
+
+  const bridgeApiUrl = input.bridgeEnv.PAPERCLIP_API_URL?.trim();
+  const bridgeToken = input.bridgeEnv.PAPERCLIP_API_KEY?.trim();
+  if (internalGatewayCount > 0 && (!bridgeApiUrl || !bridgeToken)) {
+    throw new Error("Codex remote MCP config refresh requires the per-run callback bridge.");
+  }
+
+  const controllerApiUrl = gateways[0]
+    ? new URL(gateways[0].endpointPath).origin
+    : bridgeApiUrl || "http://127.0.0.1";
+  const routedGateways = routeManagedCodexMcpGatewaysThroughCallbackBridge({
+    gateways,
+    controllerApiUrl,
+    bridgeApiUrl,
+    bridgeToken,
+    routes,
+  });
+
+  const scratchHome = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-codex-mcp-config-"));
+  try {
+    const sourceConfigPath = path.join(input.hostManagedHomeDir, "config.toml");
+    const config = await fs.readFile(sourceConfigPath, "utf8").catch((error) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return "";
+      throw error;
+    });
+    const scratchConfigPath = path.join(scratchHome, "config.toml");
+    await fs.writeFile(scratchConfigPath, config, { mode: 0o600 });
+    await writeManagedCodexMcpConfig({
+      codexHome: scratchHome,
+      apiBaseUrl: bridgeApiUrl || "http://127.0.0.1",
+      gateways: [],
+    });
+    await writeManagedCodexMcpConfig({
+      codexHome: scratchHome,
+      apiBaseUrl: bridgeApiUrl || "http://127.0.0.1",
+      gateways: routedGateways,
+    });
+    const body = await fs.readFile(scratchConfigPath, "utf8");
+
+    const target = input.executionTarget;
+    const runner = target.transport === "ssh"
+      ? createSshCommandManagedRuntimeRunner({ spec: target.spec, defaultCwd: target.remoteCwd })
+      : target.runner;
+    if (!runner) throw new Error("Codex remote MCP config refresh is missing its runtime command runner.");
+    await syncRemoteTextFileWithHashSkip({
+      runner,
+      remoteCwd: input.stagedRuntime.workspaceRemoteDir ?? target.remoteCwd,
+      remoteDir: remoteHome,
+      remotePath: path.posix.join(remoteHome, "config.toml"),
+      body,
+      label: "Codex native MCP config",
+      action: "refresh Codex native MCP config",
+      lockDir: path.posix.join(remoteHome, ".paperclip-codex-mcp-config.lock"),
+      timeoutMs: Math.max(15_000, input.timeoutSec * 1000),
+      shellCommand: target.transport === "sandbox" ? target.shellCommand : "sh",
+    });
+  } finally {
+    await fs.rm(scratchHome, { recursive: true, force: true });
+  }
+}
+
 const CODEX_MODEL_CAPACITY_RE =
   /\b(?:selected model is at capacity|model is at capacity|at capacity for this model|serverOverloaded|server overloaded)\b/i;
 
@@ -299,6 +417,7 @@ function withCodexAcpDefaults(options: CodexAcpExecutorOptions): AcpxEngineExecu
   return {
     resolveBillingIdentity: resolveCodexAcpBillingIdentity,
     prepareRemoteManagedHome: prepareCodexRemoteManagedHome,
+    prepareRemoteManagedHomeForRun: prepareCodexRemoteManagedHomeForRun,
     classifyTerminalSessionFailure: classifyCodexTerminalSessionFailure,
     ...options,
     adapterType: "codex_local",
