@@ -194,6 +194,8 @@ import { extendApprovedExecutionWaitDeadline } from "./approved-execution-wait.j
 const DEFAULT_SESSION_TTL_MS = 15 * 60 * 1000;
 const MAX_SESSION_TTL_MS = 60 * 60 * 1000;
 const DEFAULT_TOOL_TIMEOUT_MS = 10_000;
+// Leave headroom beneath the native Codex MCP client's 60s call deadline.
+const DEFAULT_REMOTE_MCP_TOOL_TIMEOUT_MS = 45_000;
 
 export function resolveCredentialGrantKind(
   policy: "shared" | "per_user" | "per_user_with_fallback" | "per_agent",
@@ -770,9 +772,11 @@ function gatewaySessionFromRow(
 }
 
 function timeoutMs(value: number | undefined, tool?: ToolGatewayDescriptor) {
-  if (!Number.isFinite(value)) return tool?.providerType === "paperclip_github_chat"
-    ? GITHUB_BOT_TOOL_TIMEOUT_MS
-    : DEFAULT_TOOL_TIMEOUT_MS;
+  if (!Number.isFinite(value)) {
+    if (tool?.providerType === "paperclip_github_chat") return GITHUB_BOT_TOOL_TIMEOUT_MS;
+    if (tool?.providerType === "mcp_remote_http") return DEFAULT_REMOTE_MCP_TOOL_TIMEOUT_MS;
+    return DEFAULT_TOOL_TIMEOUT_MS;
+  }
   return Math.max(
     1,
     Math.min(60_000, Math.floor(value ?? DEFAULT_TOOL_TIMEOUT_MS)),

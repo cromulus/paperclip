@@ -1091,6 +1091,36 @@ describe("evaluateCodexCredentialReadiness", () => {
     }
   });
 
+  it("gives only Paperclip callback endpoints the managed tool timeout", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-codex-mcp-timeout-"));
+    try {
+      await writeManagedCodexMcpConfig({
+        codexHome: root,
+        apiBaseUrl: "http://127.0.0.1:4310",
+        gateways: [
+          {
+            name: "Paperclip runtime",
+            endpointPath: "/mcp/runtime-tools",
+            bearerToken: "bridge-token",
+          },
+          {
+            name: "External MCP",
+            endpointPath: "https://mcp.example.test/mcp",
+            bearerToken: "external-token",
+          },
+        ],
+      });
+
+      const config = await fs.readFile(path.join(root, "config.toml"), "utf8");
+      const paperclipBlock = config.match(/\[mcp_servers\."paperclip-runtime"\]\n([\s\S]*?)(?=\n\[|$)/)?.[1] ?? "";
+      const externalBlock = config.match(/\[mcp_servers\."external-mcp"\]\n([\s\S]*?)(?=\n\[|$)/)?.[1] ?? "";
+      expect(paperclipBlock).toContain("tool_timeout_sec = 120");
+      expect(externalBlock).not.toContain("tool_timeout_sec = 120");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("restricts permissions on an existing managed MCP config", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-codex-mcp-config-"));
     try {

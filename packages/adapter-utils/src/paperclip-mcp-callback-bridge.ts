@@ -7,6 +7,18 @@ export function isPaperclipMcpCallbackPath(path: string): boolean {
     /^\/mcp\/gateways\/[A-Za-z0-9._-]+$/.test(path);
 }
 
+/** True only for an exact built-in callback URL on loopback HTTP. */
+export function isPaperclipMcpCallbackUrl(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  const loopbackHost = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname.toLowerCase());
+  return url.protocol === "http:" && loopbackHost && !url.search && !url.hash && isPaperclipMcpCallbackPath(url.pathname);
+}
+
 /** Build the exact host-owned auth map for built-in loopback MCP endpoints. */
 export function buildPaperclipMcpBridgeRoutes(
   servers: AdapterRuntimeMcpServer[],

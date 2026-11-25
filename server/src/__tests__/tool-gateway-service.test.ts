@@ -235,6 +235,58 @@ describeEmbeddedPostgres("tool gateway service", () => {
     await tempDb?.cleanup();
   });
 
+  it("allows remote MCP calls more than ten seconds by default and honors explicit short budgets", async () => {
+    const { company, agent, run } = await createRunFixture(db);
+    const { connection } = await createRemoteMcpToolFixture(db, company.id);
+    await db.insert(toolPolicies).values(readPolicyRow(company, "Allow read tools"));
+
+    let callCount = 0;
+    const gateway = createTestToolGatewayService(db, {
+      remoteHttpRequest: async (_url, init) => {
+        const request = JSON.parse(String(init.body));
+        if (request.method !== "tools/call") {
+          return Response.json({ jsonrpc: "2.0", id: request.id, result: {} });
+        }
+        callCount += 1;
+        const delayMs = callCount === 1 ? 10_100 : 1_000;
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(resolve, delayMs);
+          const signal = init.signal;
+          if (!signal) return;
+          if (signal.aborted) {
+            clearTimeout(timer);
+            reject(new DOMException("The operation was aborted", "AbortError"));
+            return;
+          }
+          signal.addEventListener("abort", () => {
+            clearTimeout(timer);
+            reject(new DOMException("The operation was aborted", "AbortError"));
+          }, { once: true });
+        });
+        return Response.json({ jsonrpc: "2.0", id: request.id, result: { content: [{ type: "text", text: "ready" }] } });
+      },
+    });
+    const session = await gateway.createSession(runSessionInput(company, agent, run));
+    const tool = (await gateway.listToolsForSession(session.token)).find((entry) => entry.connectionId === connection.id)!;
+
+    await expect(gateway.executeTool({
+      sessionToken: session.token,
+      tool: tool.name,
+      parameters: {},
+    })).resolves.toMatchObject({ status: "completed" });
+
+    await expect(gateway.executeTool({
+      sessionToken: session.token,
+      tool: tool.name,
+      parameters: {},
+      timeoutMs: 20,
+    })).rejects.toMatchObject({ reasonCode: "tool_timeout" });
+
+    expect(callCount).toBe(2);
+    const invocations = await db.select().from(toolInvocations).where(eq(toolInvocations.connectionId, connection.id));
+    expect(invocations.map((invocation) => invocation.status).sort()).toEqual(["succeeded", "timed_out"].sort());
+  }, 30_000);
+
   it("gates write tools with an action request and executes only stored reviewed arguments once", async () => {
     const { company, agent, run } = await createRunFixture(db);
     await db.insert(toolPolicies).values(reviewNotePolicyRow(company));

@@ -7,13 +7,17 @@ import { shellQuote } from "@paperclipai/adapter-utils/ssh";
 import { buildCodexAuthInboundProvision, CODEX_AUTH_MERGE_EXTRACT_SCRIPT_NAME } from "./codex-auth-merge-scripts.js";
 import { resolvePaperclipInstanceRootForAdapter } from "@paperclipai/adapter-utils/server-utils";
 import { isCodexAuthCachePath, readSubscriptionAccountId } from "./codex-auth-cache.js";
-import { isPaperclipMcpCallbackPath } from "@paperclipai/adapter-utils/paperclip-mcp-callback-bridge";
+import {
+  isPaperclipMcpCallbackPath,
+  isPaperclipMcpCallbackUrl,
+} from "@paperclipai/adapter-utils/paperclip-mcp-callback-bridge";
 
 const TRUTHY_ENV_RE = /^(1|true|yes|on)$/i;
 const COPIED_SHARED_FILES = ["config.json", "config.toml", "instructions.md"] as const;
 const SYMLINKED_SHARED_FILES = ["auth.json"] as const;
 const MANAGED_MCP_BLOCK_START = "# BEGIN PAPERCLIP MANAGED MCP";
 const MANAGED_MCP_BLOCK_END = "# END PAPERCLIP MANAGED MCP";
+const LEGACY_PAPERCLIP_MCP_TOOL_TIMEOUT_SEC = 120;
 
 /**
  * The allowlist of managed `CODEX_HOME` entries that the codex-local adapter
@@ -398,12 +402,16 @@ function buildManagedMcpBlock(input: {
       );
     }
     const url = new URL(gateway.endpointPath, input.apiBaseUrl).toString();
+    const isPaperclipManagedEndpoint = isPaperclipMcpCallbackUrl(url);
     lines.push(
       "",
       `[mcp_servers.${tomlString(managedName)}]`,
       `url = ${tomlString(url)}`,
       `http_headers = { Authorization = ${tomlString(`Bearer ${gateway.bearerToken}`)} }`,
     );
+    if (isPaperclipManagedEndpoint) {
+      lines.push(`tool_timeout_sec = ${LEGACY_PAPERCLIP_MCP_TOOL_TIMEOUT_SEC}`);
+    }
   });
   lines.push(MANAGED_MCP_BLOCK_END);
   return { block: lines.join("\n"), warnings };

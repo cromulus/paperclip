@@ -129,6 +129,8 @@ describe("Paperclip native MCP callback bridge integration", () => {
       } else if (body?.method === "tools/list") {
         json(res, 200, { jsonrpc: "2.0", id, result: { tools: [{ name: "connections_search", inputSchema: { type: "object" } }] } });
       } else if (body?.method === "tools/call") {
+        const args = (body.params as { arguments?: Record<string, unknown> } | undefined)?.arguments;
+        if (args?.delayMs === 11_000) await new Promise((resolve) => setTimeout(resolve, 11_000));
         json(res, 200, { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: "ok" }] } });
       } else {
         json(res, 400, { jsonrpc: "2.0", id: id ?? null, error: { code: -32601, message: "Method not found" } });
@@ -201,7 +203,15 @@ describe("Paperclip native MCP callback bridge integration", () => {
       expect(notified.response.status).toBe(202);
       expect(notified.body).toBe("");
 
-      expect(calls).toHaveLength(4);
+      const slowCall = await fetch(endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "connections_search", arguments: { delayMs: 11_000 } } }),
+      });
+      expect(slowCall.status).toBe(200);
+      expect(await slowCall.json()).toMatchObject({ jsonrpc: "2.0", id: 7, result: { content: [{ text: "ok" }] } });
+
+      expect(calls).toHaveLength(5);
       expect(calls.every((call) => call.path === "/mcp/runtime-tools" && call.auth === "Bearer trusted-native-mcp-token" && call.runId === "run-native-mcp-acceptance")).toBe(true);
 
       const wrongAuth = await fetch(endpoint, {
@@ -230,5 +240,5 @@ describe("Paperclip native MCP callback bridge integration", () => {
       await bridge?.stop();
       await new Promise<void>((resolve) => mcpServer.close(() => resolve()));
     }
-  });
+  }, 20_000);
 });
