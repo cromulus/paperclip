@@ -135,7 +135,27 @@ describe("ActiveAgentsPanel", () => {
     });
     await flushReact();
 
-    expect(container.textContent).toContain("Run output");
+    await waitForMicrotaskAssertion(() => expect(container.textContent).toContain("Run output"));
+
+    await act(async () => root.unmount());
+  });
+
+  it("keeps the opt-in dashboard transcript panel working after lazy loading", async () => {
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ActiveAgentsPanel companyId="company-1" showTranscripts />
+        </QueryClientProvider>,
+      );
+    });
+    await flushReact();
+
+    await waitForMicrotaskAssertion(() => expect(container.textContent).toContain("Run output"));
 
     await act(async () => root.unmount());
   });
