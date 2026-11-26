@@ -11,6 +11,17 @@ Get a health summary for a company in a single call.
 GET /api/companies/{companyId}/dashboard
 ```
 
+The summary endpoint stays small for callers that only need company metrics.
+The Dashboard UI reads its task charts from a separate, bounded projection:
+
+```
+GET /api/companies/{companyId}/dashboard/issue-activity
+```
+
+It returns the last 14 UTC days of visible task counts grouped by status and
+priority. The endpoint is company-scoped and applies the caller's task-read
+visibility rules.
+
 ## Response
 
 Returns a summary including:

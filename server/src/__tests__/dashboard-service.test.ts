@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { agents, companies, createDb, heartbeatRuns } from "@paperclipai/db";
+import { agents, companies, createDb, heartbeatRuns, issues } from "@paperclipai/db";
 import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
@@ -49,6 +50,7 @@ describeEmbeddedPostgres("dashboard service", () => {
 
   afterEach(async () => {
     await db.delete(heartbeatRuns);
+    await db.delete(issues);
     await db.delete(agents);
     await db.delete(companies);
   });
@@ -206,6 +208,44 @@ describeEmbeddedPostgres("dashboard service", () => {
       total: 3,
       // failed + timed_out with no error code both bucket under "unknown"
       failedByErrorCode: { unknown: 2 },
+    });
+  });
+
+  it("aggregates only visible company issues into the bounded UTC chart window", async () => {
+    const companyId = randomUUID();
+    const otherCompanyId = randomUUID();
+    const today = utcDay(0);
+    const yesterday = utcDay(-1);
+    const tooOld = utcDay(-15);
+    await db.insert(companies).values([
+      { id: companyId, name: "Dashboard charts", issuePrefix: `D${companyId.slice(0, 6)}` },
+      { id: otherCompanyId, name: "Other charts", issuePrefix: `O${otherCompanyId.slice(0, 6)}` },
+    ]);
+    await db.insert(issues).values([
+      { companyId, title: "Today todo", status: "todo", priority: "high", visibility: "open", createdAt: today },
+      { companyId, title: "Today blocked", status: "blocked", priority: "critical", visibility: "open", createdAt: today },
+      { companyId, title: "Yesterday visible", status: "done", priority: "medium", visibility: "open", createdAt: yesterday },
+      { companyId, title: "Yesterday private", status: "cancelled", priority: "low", visibility: "private", createdAt: yesterday },
+      { companyId, title: "Too old", status: "in_progress", priority: "low", visibility: "open", createdAt: tooOld },
+      { companyId, title: "Hidden", status: "blocked", priority: "high", visibility: "open", hiddenAt: today, createdAt: today },
+      { companyId, title: "Harness", status: "todo", priority: "high", visibility: "open", harnessKind: "test", createdAt: today },
+      { companyId: otherCompanyId, title: "Other company", status: "in_progress", priority: "critical", visibility: "open", createdAt: today },
+    ]);
+
+    const rows = await dashboardService(db).issueActivity(companyId, eq(issues.visibility, "open"));
+    const todayBucket = rows.find((row) => row.date === utcDateKey(today));
+    const yesterdayBucket = rows.find((row) => row.date === utcDateKey(yesterday));
+
+    expect(rows).toHaveLength(14);
+    expect(todayBucket).toEqual({
+      date: utcDateKey(today),
+      statusCounts: { todo: 1, blocked: 1 },
+      priorityCounts: { high: 1, critical: 1 },
+    });
+    expect(yesterdayBucket).toEqual({
+      date: utcDateKey(yesterday),
+      statusCounts: { done: 1 },
+      priorityCounts: { medium: 1 },
     });
   });
 

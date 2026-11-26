@@ -7,6 +7,7 @@ import {
   recoveryObservabilityService,
 } from "../services/recovery-observability.js";
 import { assertCompanyAccess } from "./authz.js";
+import { issueReadSqlCondition } from "../services/authorization.js";
 
 function parsePositiveNumber(
   value: unknown,
@@ -29,6 +30,14 @@ export function dashboardRoutes(db: Db) {
     assertCompanyAccess(req, companyId);
     const summary = await svc.summary(companyId);
     res.json(summary);
+  });
+
+  router.get("/companies/:companyId/dashboard/issue-activity", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const activity = await svc.issueActivity(companyId, await issueReadSqlCondition(db, req.actor));
+    res.setHeader("Cache-Control", "private, no-store");
+    res.json(activity);
   });
 
   router.get("/companies/:companyId/recovery-observability", async (req, res) => {

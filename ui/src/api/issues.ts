@@ -120,7 +120,8 @@ export type IssueListFilters = {
   q?: string;
   limit?: number;
   offset?: number;
-  sortField?: "updated" | "id";
+  /** `updatedAt` is timestamp-only; `updated` orders by canonical recent activity. */
+  sortField?: "updated" | "updatedAt" | "id";
   afterId?: string;
   sortDir?: "asc" | "desc";
 };

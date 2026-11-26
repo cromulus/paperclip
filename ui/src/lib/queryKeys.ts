@@ -305,6 +305,9 @@ export const queryKeys = {
     recoveryActions: (id: string, actionId: string | null, runId: string | null) =>
       ["issues", id, "recovery-actions", actionId, runId] as const,
     list: (companyId: string) => ["issues", companyId] as const,
+    dashboardRecent: (companyId: string) => ["issues", companyId, "dashboard-recent"] as const,
+    dashboardActivitySummaries: (companyId: string, issueIds: readonly string[]) =>
+      ["issues", companyId, "dashboard-activity-summaries", [...issueIds].sort()] as const,
     mentionPool: (companyId: string) =>
       ["issues", companyId, "mention-pool"] as const,
     search: (
@@ -647,6 +650,7 @@ export const queryKeys = {
     ) => ["company-search", companyId, q, scope, limit, offset] as const,
   },
   dashboard: (companyId: string) => ["dashboard", companyId] as const,
+  dashboardIssueActivity: (companyId: string) => ["dashboard", companyId, "issue-activity"] as const,
   attention: (companyId: string) => ["attention", companyId] as const,
   decisions: {
     list: (companyId: string, status?: string) =>

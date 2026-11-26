@@ -1,7 +1,7 @@
 import { AgentIdentity } from "../components/AgentIdentity";
 import { TaskSummaryList } from "../components/TaskSummaryList";
 import { useDesignSandbox } from "../context/DesignSandboxContext";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "@/lib/router";
 import {
   onboardingStepForCompany,
@@ -38,15 +38,33 @@ import { PageSkeleton } from "../components/PageSkeleton";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { InlineBanner } from "../components/InlineBanner";
-import type { Agent, Issue } from "@paperclipai/shared";
+import { ISSUE_SUMMARIES_MAX_IDS } from "@paperclipai/shared";
+import type { Agent } from "@paperclipai/shared";
 import { PluginSlotOutlet } from "@/plugins/slots";
 import { SmokeLabDashboardCard } from "../components/SmokeLabDashboardCard";
 
 const DASHBOARD_ACTIVITY_LIMIT = 10;
 
-function getRecentIssues(issues: Issue[]): Issue[] {
-  return [...issues]
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+export function dashboardDataState<T>(data: T | undefined, isPending: boolean, isError: boolean) {
+  if (data !== undefined) return "ready" as const;
+  if (isError) return "error" as const;
+  if (isPending) return "loading" as const;
+  return "empty" as const;
+}
+
+function IssueActivityChartState({ state, onRetry, children }: {
+  state: ReturnType<typeof dashboardDataState>;
+  onRetry: () => unknown;
+  children: ReactNode;
+}) {
+  if (state === "ready") return children;
+  if (state === "error") return <div className="flex items-center gap-2 text-xs text-muted-foreground">
+    <span>Couldn’t load task activity.</span>
+    <Button size="sm" variant="outline" onClick={() => void onRetry()}>Retry</Button>
+  </div>;
+  return <p className="text-xs text-muted-foreground">
+    {state === "loading" ? "Loading task activity…" : "Task activity is unavailable."}
+  </p>;
 }
 
 export type PausedAgentBanner =
@@ -176,6 +194,17 @@ export function Dashboard() {
   });
   usePublishSharedQueryData(sharedDashboard, data, dashboardUpdatedAt);
 
+  const {
+    data: issueActivity,
+    isPending: issueActivityPending,
+    isError: issueActivityError,
+    refetch: refetchIssueActivity,
+  } = useQuery({
+    queryKey: queryKeys.dashboardIssueActivity(selectedCompanyId!),
+    queryFn: () => dashboardApi.issueActivity(selectedCompanyId!),
+    enabled: !!selectedCompanyId,
+  });
+
   const activityQueryKey = [...queryKeys.activity(selectedCompanyId!), { limit: DASHBOARD_ACTIVITY_LIMIT }] as const;
   const sharedActivity = useSharedPollingQuery({
     companyId: selectedCompanyId,
@@ -190,9 +219,18 @@ export function Dashboard() {
   });
   usePublishSharedQueryData(sharedActivity, activity, activityUpdatedAt);
 
-  const { data: issues } = useQuery({
-    queryKey: queryKeys.issues.list(selectedCompanyId!),
-    queryFn: () => issuesApi.list(selectedCompanyId!),
+  const {
+    data: recentIssues,
+    isPending: recentIssuesPending,
+    isError: recentIssuesError,
+    refetch: refetchRecentIssues,
+  } = useQuery({
+    queryKey: queryKeys.issues.dashboardRecent(selectedCompanyId!),
+    queryFn: () => issuesApi.listCompact(selectedCompanyId!, {
+      limit: DASHBOARD_ACTIVITY_LIMIT,
+      sortField: "updatedAt",
+      sortDir: "desc",
+    }),
     enabled: !!selectedCompanyId,
   });
 
@@ -213,8 +251,26 @@ export function Dashboard() {
     [companyMembers?.users],
   );
 
-  const recentIssues = issues ? getRecentIssues(issues) : [];
+  const recentIssuesState = dashboardDataState(recentIssues, recentIssuesPending, recentIssuesError);
+  const issueActivityState = dashboardDataState(issueActivity, issueActivityPending, issueActivityError);
+  const recentIssueRows = recentIssues ?? [];
   const recentActivity = useMemo(() => (activity ?? []).slice(0, 10), [activity]);
+  const recentIssueIds = useMemo(() => new Set(recentIssueRows.map((issue) => issue.id)), [recentIssueRows]);
+  const activityIssueIds = useMemo(() => [...new Set(recentActivity
+    .filter((event) => event.entityType === "issue")
+    .map((event) => event.entityId))].filter((id) => !recentIssueIds.has(id)), [recentActivity, recentIssueIds]);
+  const { data: activityIssueSummaries = [] } = useQuery({
+    queryKey: queryKeys.issues.dashboardActivitySummaries(selectedCompanyId!, activityIssueIds),
+    queryFn: async () => {
+      const chunks: string[][] = [];
+      for (let index = 0; index < activityIssueIds.length; index += ISSUE_SUMMARIES_MAX_IDS) {
+        chunks.push(activityIssueIds.slice(index, index + ISSUE_SUMMARIES_MAX_IDS));
+      }
+      const pages = await Promise.all(chunks.map((ids) => issuesApi.summaries(selectedCompanyId!, ids)));
+      return pages.flat();
+    },
+    enabled: !!selectedCompanyId && activityIssueIds.length > 0,
+  });
 
   useEffect(() => {
     for (const timer of activityAnimationTimersRef.current) {
@@ -279,17 +335,19 @@ export function Dashboard() {
 
   const entityNameMap = useMemo(() => {
     const map = new Map<string, string>();
-    for (const i of issues ?? []) map.set(`issue:${i.id}`, i.identifier ?? i.id.slice(0, 8));
+    for (const i of recentIssueRows) map.set(`issue:${i.id}`, i.identifier ?? i.id.slice(0, 8));
+    for (const i of activityIssueSummaries) map.set(`issue:${i.id}`, i.identifier ?? i.id.slice(0, 8));
     for (const a of agents ?? []) map.set(`agent:${a.id}`, a.name);
     for (const p of projects ?? []) map.set(`project:${p.id}`, p.name);
     return map;
-  }, [issues, agents, projects]);
+  }, [recentIssueRows, activityIssueSummaries, agents, projects]);
 
   const entityTitleMap = useMemo(() => {
     const map = new Map<string, string>();
-    for (const i of issues ?? []) map.set(`issue:${i.id}`, i.title);
+    for (const i of recentIssueRows) map.set(`issue:${i.id}`, i.title);
+    for (const i of activityIssueSummaries) map.set(`issue:${i.id}`, i.title);
     return map;
-  }, [issues]);
+  }, [recentIssueRows, activityIssueSummaries]);
 
   const agentName = (id: string | null) => {
     if (!id || !agents) return null;
@@ -468,11 +526,15 @@ export function Dashboard() {
             {/* PAP-411: "Tasks by Priority" chart hidden behind SHOW_TASK_PRIORITY_UI. */}
             {SHOW_TASK_PRIORITY_UI && (
               <ChartCard title="Tasks by Priority" subtitle="Last 14 days">
-                <PriorityChart issues={issues ?? []} />
+                <IssueActivityChartState state={issueActivityState} onRetry={() => refetchIssueActivity()}>
+                  <PriorityChart activity={issueActivity} />
+                </IssueActivityChartState>
               </ChartCard>
             )}
             <ChartCard title="Tasks by Status" subtitle="Last 14 days">
-              <IssueStatusChart issues={issues ?? []} />
+              <IssueActivityChartState state={issueActivityState} onRetry={() => refetchIssueActivity()}>
+                <IssueStatusChart activity={issueActivity} />
+              </IssueActivityChartState>
             </ChartCard>
             <ChartCard title="Success Rate" subtitle="Last 14 days">
               <SuccessRateChart activity={data.runActivity} />
@@ -515,15 +577,31 @@ export function Dashboard() {
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
                 Recent Tasks
               </h3>
-              {recentIssues.length === 0 ? (
+              {recentIssuesState === "error" ? (
+                <Card className="block p-4">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span>Couldn’t load recent tasks.</span>
+                    <Button size="sm" variant="outline" onClick={() => void refetchRecentIssues()}>Retry</Button>
+                  </div>
+                </Card>
+              ) : recentIssuesState === "loading" ? (
+                <Card className="block p-4"><p className="text-sm text-muted-foreground">Loading recent tasks…</p></Card>
+              ) : recentIssuesState === "empty" ? (
+                <Card className="block p-4">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span>Recent tasks are unavailable.</span>
+                    <Button size="sm" variant="outline" onClick={() => void refetchRecentIssues()}>Retry</Button>
+                  </div>
+                </Card>
+              ) : recentIssueRows.length === 0 ? (
                 <Card className="block p-4">
                   <p className="text-sm text-muted-foreground">No tasks yet.</p>
                 </Card>
               ) : (
                 designSandbox ? <Card className="block overflow-hidden py-0">
-                  <TaskSummaryList issues={recentIssues.slice(0, 10)} />
+                  <TaskSummaryList issues={recentIssueRows} />
                 </Card> : <Card className="@container block py-0 divide-y divide-border overflow-hidden">
-                  {recentIssues.slice(0, 10).map((issue) => (
+                  {recentIssueRows.map((issue) => (
                     <Link
                       key={issue.id}
                       to={`/issues/${issue.identifier ?? issue.id}`}

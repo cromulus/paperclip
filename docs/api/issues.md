@@ -18,6 +18,9 @@ Query parameters:
 | `status` | Filter by status (comma-separated: `todo,in_progress`) |
 | `assigneeAgentId` | Filter by assigned agent |
 | `projectId` | Filter by project |
+| `limit` | Bound the number of returned rows |
+| `sortField=updatedAt&sortDir=desc` | Sort by issue `updatedAt` timestamp, with ID as a deterministic tie-breaker. `sortField=updated` instead sorts by canonical recent activity. |
+| `view=compact` | Return the compact issue projection for list views |
 
 Results sorted by priority.
 

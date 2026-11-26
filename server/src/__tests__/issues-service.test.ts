@@ -1698,6 +1698,53 @@ describeEmbeddedPostgres("issueService.list participantAgentId", () => {
     expect(result.map((issue) => issue.id)).toEqual([recentMediumIssueId]);
   });
 
+  it("sorts and limits updatedAt lists on the server with deterministic ties and company scope", async () => {
+    const companyId = randomUUID();
+    const otherCompanyId = randomUUID();
+    const sameTimeOlderId = "00000000-0000-4000-8000-000000000001";
+    const sameTimeNewerId = "00000000-0000-4000-8000-000000000002";
+    await seedIssueCompany(db, companyId);
+    await seedIssueCompany(db, otherCompanyId);
+    const companyRows = Array.from({ length: 12 }, (_, index) => ({
+      id: index < 2 ? (index === 0 ? sameTimeOlderId : sameTimeNewerId) : randomUUID(),
+      companyId,
+      title: `Recent ${index}`,
+      status: "todo",
+      priority: "low",
+      updatedAt: new Date(index < 2
+        ? "2026-05-20T12:00:00.000Z"
+        : `2026-05-${String(19 - index).padStart(2, "0")}T12:00:00.000Z`),
+    }));
+    const otherCompanyIssueId = randomUUID();
+    await db.insert(issues).values([
+      ...companyRows,
+      {
+        id: otherCompanyIssueId,
+        companyId: otherCompanyId,
+        title: "Other company's newer issue",
+        status: "todo",
+        priority: "critical",
+        updatedAt: new Date("2026-05-25T12:00:00.000Z"),
+      },
+    ]);
+
+    const result = await svc.list(companyId, {
+      limit: 10,
+      sortField: "updatedAt",
+      sortDir: "desc",
+    });
+
+    expect(result).toHaveLength(10);
+    expect(result.slice(0, 2).map((issue) => issue.id)).toEqual([sameTimeNewerId, sameTimeOlderId]);
+    expect(result.map((issue) => issue.id)).not.toContain(otherCompanyIssueId);
+    expect(result.map((issue) => issue.id)).toEqual(
+      [...companyRows]
+        .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || b.id.localeCompare(a.id))
+        .slice(0, 10)
+        .map((issue) => issue.id),
+    );
+  });
+
   it("ranks direct description matches ahead of comment-only matches", async () => {
     const companyId = randomUUID();
     const commentMatchId = randomUUID();

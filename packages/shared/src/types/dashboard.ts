@@ -24,6 +24,12 @@ export interface DashboardRunActivityDay {
   failedByErrorCode: Record<string, number>;
 }
 
+export interface DashboardIssueActivityDay {
+  date: string;
+  statusCounts: Record<string, number>;
+  priorityCounts: Record<string, number>;
+}
+
 export interface DashboardSummary {
   companyId: string;
   agents: {

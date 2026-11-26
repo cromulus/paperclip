@@ -56,6 +56,24 @@ describeEmbeddedPostgres("issue list status query parsing", () => {
   it("returns every status when ?status is absent", async () => {
     expect(await listStatuses("")).toEqual(["done", "in_progress", "todo"]);
   });
+
+  it("serves a compact updatedAt-sorted page with the requested server limit", async () => {
+    const company = await seedCompanyWithBoardAccess(ctx.db, "Recent compact list");
+    const olderId = "00000000-0000-4000-8000-000000000001";
+    const newerTieId = "00000000-0000-4000-8000-000000000003";
+    const olderTieId = "00000000-0000-4000-8000-000000000002";
+    await ctx.db.insert(issues).values([
+      { id: olderId, companyId: company.companyId, title: "Older", status: "todo", priority: "critical", updatedAt: new Date("2026-05-01T00:00:00Z") },
+      { id: olderTieId, companyId: company.companyId, title: "Tie older id", status: "todo", priority: "low", updatedAt: new Date("2026-05-02T00:00:00Z") },
+      { id: newerTieId, companyId: company.companyId, title: "Tie newer id", status: "todo", priority: "low", updatedAt: new Date("2026-05-02T00:00:00Z") },
+    ]);
+
+    const response = await request(routeApp(ctx.db, company.actor, issueRoutes))
+      .get(`/api/companies/${company.companyId}/issues?view=compact&limit=2&sortField=updatedAt&sortDir=desc`)
+      .expect(200);
+
+    expect((response.body as { id: string }[]).map((issue) => issue.id)).toEqual([newerTieId, olderTieId]);
+  });
 });
 
 describeEmbeddedPostgres("issue list batched hierarchy filters", () => {

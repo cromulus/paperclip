@@ -1268,6 +1268,7 @@ export type {
   AgentWakeupRequest,
   InstanceSchedulerHeartbeatAgent,
   LiveEvent,
+  DashboardIssueActivityDay,
   DashboardRunActivityDay,
   DashboardSummary,
   TimelineActorType,

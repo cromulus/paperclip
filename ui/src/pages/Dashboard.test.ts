@@ -1,6 +1,6 @@
 import type { Agent } from "@paperclipai/shared";
 import { describe, expect, it } from "vitest";
-import { derivePausedAgentBanner } from "./Dashboard";
+import { dashboardDataState, derivePausedAgentBanner } from "./Dashboard";
 
 function agent(overrides: Partial<Agent>): Agent {
   return {
@@ -41,5 +41,17 @@ describe("derivePausedAgentBanner", () => {
       agent({ id: "b", status: "idle" }),
     ]);
     expect(banner).toBeNull();
+  });
+});
+
+describe("dashboardDataState", () => {
+  it("keeps a valid empty result distinct from pending and failed requests", () => {
+    expect(dashboardDataState([], false, false)).toBe("ready");
+    expect(dashboardDataState(undefined, true, false)).toBe("loading");
+    expect(dashboardDataState(undefined, false, true)).toBe("error");
+  });
+
+  it("keeps previously loaded data visible when a background refresh fails", () => {
+    expect(dashboardDataState([], false, true)).toBe("ready");
   });
 });

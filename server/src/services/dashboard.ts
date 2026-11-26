@@ -1,4 +1,4 @@
-import { and, eq, gte, lte, sql } from "drizzle-orm";
+import { and, eq, gte, lte, sql, type SQL } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { agents, approvals, companies, costEvents, heartbeatRuns, issues } from "@paperclipai/db";
 import { notFound } from "../errors.js";
@@ -26,7 +26,48 @@ function getRecentUtcDateKeys(now: Date, days: number): string[] {
 
 export function dashboardService(db: Db) {
   const budgets = budgetService(db);
+  const issueActivity = async (companyId: string, issueReadCondition?: SQL<boolean>) => {
+    const now = new Date();
+    const days = getRecentUtcDateKeys(now, DASHBOARD_RUN_ACTIVITY_DAYS);
+    const start = new Date(`${days[0]}T00:00:00.000Z`);
+    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+    const rows = (await retryIdempotentDatabaseOperation(() => db.execute(sql`
+      SELECT
+        to_char(${issues.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS date,
+        ${issues.status} AS status,
+        ${issues.priority} AS priority,
+        count(*)::double precision AS count
+      FROM ${issues}
+      WHERE ${issues.companyId} = ${companyId}
+        AND ${issues.createdAt} >= ${start.toISOString()}::timestamptz
+        AND ${issues.createdAt} < ${end.toISOString()}::timestamptz
+        AND ${executionIssueCondition()}
+        ${issueReadCondition ? sql`AND (${issueReadCondition})` : sql``}
+      GROUP BY date, status, priority
+    `))) as unknown as Iterable<{
+      date: string;
+      status: string;
+      priority: string;
+      count: number | string;
+    }>;
+    const byDate = new Map(days.map((date) => [date, {
+      date,
+      statusCounts: {} as Record<string, number>,
+      priorityCounts: {} as Record<string, number>,
+    }]));
+    for (const row of rows) {
+      const bucket = byDate.get(String(row.date));
+      if (!bucket) continue;
+      const count = Number(row.count);
+      const status = String(row.status);
+      const priority = String(row.priority);
+      bucket.statusCounts[status] = (bucket.statusCounts[status] ?? 0) + count;
+      bucket.priorityCounts[priority] = (bucket.priorityCounts[priority] ?? 0) + count;
+    }
+    return Array.from(byDate.values());
+  };
   return {
+    issueActivity,
     summary: async (companyId: string) => {
       // This lookup only reads the company row. Rebuild it after a transient
       // disconnect; do not replay the later summary or budget workflows.
