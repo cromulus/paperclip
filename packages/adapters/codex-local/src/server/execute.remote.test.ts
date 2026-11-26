@@ -311,6 +311,12 @@ describe("codex remote execution", () => {
     await mkdir(codexHomeDir, { recursive: true });
     await writeFile(path.join(rootDir, "instructions.md"), "Use the remote workspace.\n", "utf8");
     await writeFile(path.join(codexHomeDir, "auth.json"), "{}", "utf8");
+    let stagedMcpConfig = "";
+    (syncDirectoryToSsh as unknown as {
+      mockImplementationOnce: (implementation: (input: { localDir: string }) => Promise<void>) => unknown;
+    }).mockImplementationOnce(async ({ localDir }) => {
+      stagedMcpConfig = await readFile(path.join(localDir, "config.toml"), "utf8");
+    });
     const alternateWorkspaceDir = path.join(rootDir, "alternate-workspace");
     await mkdir(alternateWorkspaceDir, { recursive: true });
 
@@ -328,6 +334,14 @@ describe("codex remote execution", () => {
         sessionParams: null,
         sessionDisplayId: null,
         taskKey: null,
+      },
+      runtimeMcp: {
+        getServers: () => [
+          { name: "Paperclip projects", url: "http://127.0.0.1:3100/api/mcp/project-tools", token: "host-project-token", connectionId: "project-tools" },
+          { name: "Paperclip runtime", url: "http://localhost:3100/mcp/runtime-tools", token: "host-runtime-token", connectionId: "runtime-tools" },
+          { name: "Doktor", url: "http://127.0.0.1:3100/mcp/gateways/gw_doktor", token: "host-gateway-token", connectionId: "gateway:doktor" },
+          { name: "External MCP", url: "https://mcp.example.test/mcp", token: "external-token", connectionId: "external" },
+        ],
       },
       config: {
         engine: "cli",
@@ -419,9 +433,28 @@ describe("codex remote execution", () => {
       },
     ]);
     expect(call?.[3].env.PAPERCLIP_API_URL).toBe("http://127.0.0.1:4310");
+    expect(call?.[3].env.PAPERCLIP_API_KEY).toBe("bridge-token");
+    expect(stagedMcpConfig).toContain("http://127.0.0.1:4310/api/mcp/project-tools");
+    expect(stagedMcpConfig).toContain("http://127.0.0.1:4310/mcp/runtime-tools");
+    expect(stagedMcpConfig).toContain("http://127.0.0.1:4310/mcp/gateways/gw_doktor");
+    expect(stagedMcpConfig).toContain("bridge-token");
+    expect(stagedMcpConfig).toContain("https://mcp.example.test/mcp");
+    expect(stagedMcpConfig).toContain("external-token");
+    expect(stagedMcpConfig).not.toContain("host-project-token");
+    expect(stagedMcpConfig).not.toContain("host-runtime-token");
+    expect(stagedMcpConfig).not.toContain("host-gateway-token");
+    expect(stagedMcpConfig).not.toContain("http://127.0.0.1:3100");
+    expect(stagedMcpConfig).not.toContain("http://localhost:3100");
     expect(call?.[3].env.PAPERCLIP_API_BRIDGE_MODE).toBe("queue_v1");
     expect(call?.[3].remoteExecution?.remoteCwd).toBe(managedRemoteWorkspace);
     expect(startAdapterExecutionTargetPaperclipBridge).toHaveBeenCalledTimes(1);
+    expect(startAdapterExecutionTargetPaperclipBridge).toHaveBeenCalledWith(expect.objectContaining({
+      mcpRoutes: [
+        { path: "/api/mcp/project-tools", headers: { authorization: "Bearer host-project-token" } },
+        { path: "/mcp/runtime-tools", headers: { authorization: "Bearer host-runtime-token" } },
+        { path: "/mcp/gateways/gw_doktor", headers: { authorization: "Bearer host-gateway-token" } },
+      ],
+    }));
     expect(restoreWorkspaceFromSshExecution).toHaveBeenCalledTimes(1);
     expect(restoreWorkspaceFromSshExecution).toHaveBeenCalledWith(expect.objectContaining({
       localDir: workspaceDir,

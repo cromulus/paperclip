@@ -1,0 +1,88 @@
+# NMC production source build
+
+The November 25 upgrade integrates upstream `8e8c1b9f4da48debed82ab448b0eaf486c68781b`
+and the retained NMC production source changes. The root Dockerfile builds the UI,
+server, adapters, and Runner together. The NMC image stage also builds the
+installed wiki plugin against this revision of the plugin SDK. Remove the legacy
+compiled wiki and owner-identity bind mounts when promoting this image. Do not apply the old compiled-bundle patches
+to a new upstream image. `Dockerfile.2026-1106-legacy` and the patch scripts are
+historical recovery material for that release only.
+
+Preserved behavior includes the trusted owner MCP boundary, separate public MCP
+origin, disabled hosted connector policy, direct GitHub repository discovery,
+agent-owned execution environments, routine claim contention, and remote MCP
+callback routing. Upstream now supplies the chat/sidebar loading improvements.
+Runtime secrets and deployment policy values remain in Dokploy.
+
+On a shared host, bound the BuildKit container to four actual CPUs with
+`docker update --cpuset-cpus 0-3 <builder-container>` (adjust to its allowed CPU
+set). A CPU quota alone leaves all host CPUs visible to pnpm, which starts too
+many dependency workers and can exceed a 6 GiB build memory limit.
+
+Build from a clean committed checkout with directories at 0755 and regular
+files at 0644 (executable files at 0755). When exporting with `git archive`,
+extract with umask 022 or remove group/other write bits before building. The
+Runner verifies ownership and permissions of its pinned provider manifests.
+
+Build from a clean committed checkout:
+
+```sh
+revision=$(git rev-parse HEAD)
+upstream=8e8c1b9f4da48debed82ab448b0eaf486c68781b
+docker build --target production \
+  --build-arg PAPERCLIP_BUILD_COMMIT="$revision" \
+  --build-arg PAPERCLIP_RUNNER_SOURCE_REVISION="$revision" \
+  -t nmc/paperclip-source:"$revision" .
+docker build -f deploy/nmc/Dockerfile \
+  --build-arg NMC_SOURCE_IMAGE=nmc/paperclip-source:"$revision" \
+  --build-arg NMC_FORK_REVISION="$revision" \
+  --build-arg NMC_UPSTREAM_REVISION="$upstream" \
+  -t nmc/paperclip:"$revision" .
+```
+
+The Runner source revision is valid only while its build inputs match upstream.
+Verify its input digest when reusing Runner artifacts. Never reuse an old image's
+UI or compiled server modules as bind mounts over the new build.
+
+## Database and deployment
+
+Rehearse every pending migration on a restored production dump, on an internal
+network without production credentials or outbound access. This upgrade includes
+upstream maintenance migrations: stop old application writers before cutover.
+Keep a fresh database dump, private configuration/secret backups, and the previous
+Compose/image. Rollback after schema migration requires restoring that dump, not
+merely switching the image back.
+
+NMC previously shipped `0375_stiff_meggan.sql`; upstream independently allocated
+0375. Preserve the original database receipt. Its exact SQL is archived under
+`legacy-migrations/`. Generated migration `0511_eager_toad.sql` validates
+and preserves the existing nullable UUID owner column and index, or installs them
+on a new database. It creates indexes concurrently and runs outside a transaction.
+It never rewrites the historical receipt or skips upstream's own 0375 migration.
+
+Retain four CPUs for both application and database, PostgreSQL JIT disabled, and
+the NMC heartbeat recovery lookup index. Verify health, build stamp, trusted owner
+and anonymous MCP boundaries, existing chat history, and a harmless tool read
+through the real agent path after deployment. A successful build alone is not
+production acceptance.
+
+`master` has a daily draft upstream sync PR workflow. Sync does not deploy;
+production promotion requires this migration and runtime verification process.
+
+## SSO sidecar process boundary
+
+Upstream checks the client process before granting implicit local board access.
+A proxy in another PID namespace cannot pass that inspection. Mount a private,
+read-only random secret file at `/run/secrets/nmc-proxy-owner-token` and set
+`NMC_PROXY_OWNER_TOKEN_FILE` to that path. Generate at least 32 random bytes.
+The private front-door nginx must overwrite `X-NMC-Proxy-Token` with that secret
+only on the SSO-protected route. OAuth2 Proxy supplies the owner identity and
+group headers after authentication. The native/public ingress must not inject
+this credential. Remove OAuth2 Proxy skip-auth routes; the front-door native
+allowlist already handles those endpoints directly. This keeps every request
+carrying the proxy credential behind SSO. Do not put the value in Git, command arguments, or logs.
+
+The server requires the secret, loopback transport, configured owner subject,
+email, host, HTTPS forwarding, and `nmc_atelier` group together. This applies to
+HTTP and live WebSocket connections. Bearer authentication remains authoritative;
+missing or mismatched credentials fail closed. HTTP logs redact the secret.

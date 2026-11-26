@@ -19,6 +19,7 @@ import { resolveEnvironmentExecutionTarget } from "./environment-execution-targe
 import { prepareManagedAiRuntime, assertManagedAiProjectAuth } from "./ai-connection-runtime.js";
 import { isRunnerRevisionMismatch, runnerRevisionMismatchTestResult } from "./runner-revision-mismatch.js";
 import { aiConnectionService } from "./ai-connections.js";
+import { isAiKeyVerificationFailureCode } from "./ai-api-key-failures.js";
 import { validateAiApiKey } from "./ai-api-key-test.js";
 import { probeCopilotExecutionTarget } from "./copilot-connection-probe.js";
 import type { PluginWorkerManager } from "./plugin-worker-manager.js";
@@ -119,6 +120,11 @@ export function agentEnvironmentTestService(db: Db, pluginWorkerManager?: Plugin
         ],
         release: noopRelease,
       };
+    }
+    if (requestedEnvironment.ownerAgentId && requestedEnvironment.ownerAgentId !== input.agentId) {
+      throw forbidden("The selected environment is bound to another agent.", {
+        code: "environment_agent_mismatch",
+      });
     }
 
     // Managed-sandbox-only policy: redirect a Test that would run on the local
@@ -508,11 +514,13 @@ export function agentEnvironmentTestService(db: Db, pluginWorkerManager?: Plugin
   async function assertAdapterTestEnvironmentForCompany(
     companyId: string,
     environmentId: string,
-    adapterType?: string,
+    adapterType: string | undefined,
+    agentId?: string | null,
   ): Promise<void> {
-    if (!await assertAdapterTestEnvironmentBinding(companyId, environmentId)) return;
+    if (!await assertAdapterTestEnvironmentBinding(companyId, environmentId, agentId)) return;
     await assertEnvironmentSelectionForCompany(environmentsSvc, companyId, environmentId, {
       allowedDrivers: adapterType === "paperclip_runner" ? [...ADAPTER_TEST_ALLOWED_ENVIRONMENT_DRIVERS, "plugin"] : ADAPTER_TEST_ALLOWED_ENVIRONMENT_DRIVERS,
+      agentId,
     });
   }
 
@@ -521,7 +529,7 @@ export function agentEnvironmentTestService(db: Db, pluginWorkerManager?: Plugin
   // full guard with the resolved adapter type. Returns the environment, or
   // null for a missing one, which leaks no tenant state; the execution-context
   // resolver surfaces the existing environment_not_found check.
-  async function assertAdapterTestEnvironmentBinding(companyId: string, environmentId: string) {
+  async function assertAdapterTestEnvironmentBinding(companyId: string, environmentId: string, agentId?: string | null) {
     const environment = await environmentsSvc.getById(environmentId);
     if (!environment) return null;
     const boundCompanyIds = await environmentsSvc.listBoundCompanyIds(environmentId);
@@ -529,6 +537,9 @@ export function agentEnvironmentTestService(db: Db, pluginWorkerManager?: Plugin
       throw forbidden("The selected environment belongs to another company.", {
         code: "environment_company_mismatch",
       });
+    }
+    if (environment.ownerAgentId && environment.ownerAgentId !== agentId) {
+      throw forbidden("The selected environment is bound to another agent.", { code: "environment_agent_mismatch" });
     }
     return environment;
   }
@@ -597,6 +608,8 @@ export function agentEnvironmentTestService(db: Db, pluginWorkerManager?: Plugin
     // exact model without a billable turn. Do not invoke another Google CLI.
     if (adapterType === "paperclip_runner" && context.config.provider === "acpx" && context.config.acpxAgent === "antigravity") {
       if (result.status === "pass" && result.checks.some(check => check.code === "antigravity_metadata_verified" && check.level === "info")) return result;
+      if (target?.kind === "remote" && !(target.transport === "sandbox" && target.runnerTask) && result.status === "warn"
+        && result.checks.some(check => check.code === "antigravity_remote_runtime_ready")) return result;
       return { ...result, status: "fail", checks: [...result.checks, { code: "ai_connection_validation_incomplete", level: "error",
         message: "The selected Google account has not completed native account and model verification. Retry before adopting it." }] };
     }
@@ -630,8 +643,8 @@ export function agentEnvironmentTestService(db: Db, pluginWorkerManager?: Plugin
         result.checks.push({ code: "ai_connection_api_key_reverified", level: "info", message: "The provider verified this API key for adoption." });
       } catch (error) {
         result.status = "fail";
-        const rejected = error instanceof HttpError && asRecord(error.details)?.code === "ai_connection_api_key_rejected";
-        result.checks.push({ code: rejected ? "ai_connection_api_key_rejected" : "ai_connection_verification_failed", level: "error", message: error instanceof HttpError ? error.message : "Could not verify the account. Try again." });
+        const code = error instanceof HttpError ? asRecord(error.details)?.code : undefined;
+        result.checks.push({ code: isAiKeyVerificationFailureCode(code) ? code : "ai_connection_verification_failed", level: "error", message: error instanceof HttpError ? error.message : "Could not verify the account. Try again." });
       }
       return finishManagedConnectionTest(adapterType, context, result);
     }

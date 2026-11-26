@@ -27,7 +27,8 @@ import type { RunProcessResult } from "./server-utils.js";
 
 const DEFAULT_BRIDGE_TOKEN_BYTES = 24;
 const DEFAULT_BRIDGE_POLL_INTERVAL_MS = 100;
-const DEFAULT_BRIDGE_RESPONSE_TIMEOUT_MS = 30_000;
+const DEFAULT_BRIDGE_RESPONSE_TIMEOUT_MS = 100_000;
+const DEFAULT_BRIDGE_COMMAND_TIMEOUT_MS = 30_000;
 const MAX_BRIDGE_CONTROL_COMMAND_TIMEOUT_MS = 30_000;
 const DEFAULT_BRIDGE_STOP_TIMEOUT_MS = 2_000;
 const DEFAULT_BRIDGE_MAX_QUEUE_DEPTH = 64;
@@ -48,41 +49,34 @@ const DEFAULT_BRIDGE_MAX_QUEUE_DEPTH = 64;
 // never fails at the bridge before the server ever sees it.
 const BRIDGE_MULTIPART_FRAMING_HEADROOM_BYTES = 64 * 1024;
 const DEFAULT_BRIDGE_MAX_BODY_BYTES = 10 * 1024 * 1024 + BRIDGE_MULTIPART_FRAMING_HEADROOM_BYTES;
-// Per-iteration timeout for one poll-loop client call. A healthy control-plane
-// round trip finishes in well under one second, so 10s is far above a normal
-// iteration and never false-fires on a slow-but-live call. It is also well
-// under the in-sandbox 30s response deadline
-// (PAPERCLIP_BRIDGE_RESPONSE_TIMEOUT_MS), so the host loop fails fast and writes
-// 503 responses before the in-sandbox client gives up. A silently unresponsive
-// sandbox channel makes a client call hang with no reject; this timeout turns
-// that hang into a caught error, so the poll loop can back off and retry while
-// the watchdog below decides when to fail the queued requests.
-const DEFAULT_BRIDGE_ITERATION_TIMEOUT_MS = 10_000;
-// Watchdog backstop for a hang that the per-iteration timeout does not catch
-// (for example many slow-but-under-timeout calls, or a stall outside the awaited
-// calls). It is larger than one iteration timeout, so a single slow iteration
-// never trips it, and it stays under the in-sandbox 30s response deadline.
-const DEFAULT_BRIDGE_WATCHDOG_TIMEOUT_MS = 20_000;
+// One MCP tool call can spend up to 60s in its provider. A full queue request
+// also includes the remote request-file read and response-file write, so the
+// worker gives that bounded call 75s before aborting it. This remains bounded
+// while leaving room for ordinary remote queue operations.
+const DEFAULT_BRIDGE_ITERATION_TIMEOUT_MS = 75_000;
+// The watchdog catches a sustained stall outside an individual request. Keep it
+// later than the request timeout, but before the remote client response deadline
+// so the worker can publish a terminal error while the client is still waiting.
+const DEFAULT_BRIDGE_WATCHDOG_TIMEOUT_MS = 90_000;
 // Grace period the recovery path gives an aborted in-flight handler to finalize
 // its own response. The recovery path aborts the handler, then waits this long.
 // A cooperating handler threads the abort signal into its work, rejects, and
 // writes its own response inside the grace, so its accurate result wins. A
 // handler that ignores the signal and never settles does not write inside the
 // grace; the recovery path then writes a non-retryable 504 backstop, so the
-// request never strands with no response. The grace is well under the in-sandbox
-// 30s response deadline, so the backstop lands before the in-sandbox client
-// gives up.
+// request never strands with no response. The grace leaves headroom before the
+// in-sandbox 100s response deadline.
 const DEFAULT_BRIDGE_ABORTED_HANDLER_GRACE_MS = 5_000;
 // The recovery path retries the 504 backstop write this many times before it
 // gives up. A single transient write failure, or one that exceeds the iteration
 // timeout, then does not strand the caller with no terminal response.
 const MAX_BACKSTOP_WRITE_ATTEMPTS = 3;
 // The delay between two 504 backstop write attempts. It is short, so all retries
-// finish well under the in-sandbox 30s response deadline.
+// finish well under the in-sandbox 100s response deadline.
 const BACKSTOP_WRITE_RETRY_MS = 50;
 // Backoff cap between poll-loop retries after a transient iteration failure.
 // The cap keeps a recovering loop probing often enough to resume before the
-// in-sandbox 30s response deadline strands queued callers, while the
+// in-sandbox 100s response deadline strands queued callers, while the
 // exponential ramp below it keeps a hard-down channel from burning an exec
 // call every poll interval.
 const MAX_TRANSIENT_ITERATION_BACKOFF_MS = 5_000;
@@ -140,6 +134,13 @@ export const DEFAULT_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST: readonly SandboxCa
   // Read-only schema discovery for validated control-plane requests.
   { method: "GET", path: /^\/api\/openapi\.json$/ },
 
+  // Run-scoped Paperclip MCP transports are JSON-RPC POST endpoints. Keep GET
+  // (including long-lived event streams) denied; these handlers return bounded
+  // JSON/202 responses and the server authenticates the forwarded run token.
+  { method: "POST", path: /^\/api\/mcp\/project-tools$/ },
+  { method: "POST", path: /^\/mcp\/runtime-tools$/ },
+  { method: "POST", path: /^\/mcp\/gateways\/[A-Za-z0-9._-]+$/ },
+
   // Company-level reads used to discover work and context
   { method: "GET", path: /^\/api\/companies\/[^/]+$/ },
   { method: "GET", path: /^\/api\/companies\/[^/]+\/dashboard$/ },
@@ -171,6 +172,7 @@ export const DEFAULT_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST: readonly SandboxCa
   { method: "GET", path: /^\/api\/companies\/[^/]+\/email\/tasks\/[^/]+$/ },
   { method: "GET", path: /^\/api\/companies\/[^/]+\/email\/deliveries\/[^/]+$/ },
   { method: "POST", path: /^\/api\/companies\/[^/]+\/email\/send$/ },
+  { method: "POST", path: /^\/api\/companies\/[^/]+\/slack\/tasks\/[^/]+\/tools$/ },
 
   // Issue lifecycle: read context, checkout, update, comment, document, release
   { method: "GET", path: /^\/api\/issues\/[^/]+$/ },
@@ -645,7 +647,7 @@ export function createCommandManagedSandboxCallbackBridgeQueueClient(input: {
   timeoutMs?: number | null;
   shellCommand?: "bash" | "sh" | null;
 }): SandboxCallbackBridgeQueueClient {
-  const timeoutMs = normalizeTimeoutMs(input.timeoutMs, DEFAULT_BRIDGE_RESPONSE_TIMEOUT_MS);
+  const timeoutMs = normalizeTimeoutMs(input.timeoutMs, DEFAULT_BRIDGE_COMMAND_TIMEOUT_MS);
   const shellCommand = preferredShellForSandbox(input.shellCommand);
   const runChecked = async (action: string, script: string) =>
     requireSuccessfulResult(action, await runShell(input.runner, input.remoteCwd, script, timeoutMs, shellCommand));
@@ -1709,7 +1711,7 @@ export async function startSandboxCallbackBridgeServer(input: {
   maxQueueDepth?: number | null;
   maxBodyBytes?: number | null;
 }): Promise<StartedSandboxCallbackBridgeServer> {
-  const timeoutMs = normalizeTimeoutMs(input.timeoutMs, DEFAULT_BRIDGE_RESPONSE_TIMEOUT_MS);
+  const timeoutMs = normalizeTimeoutMs(input.timeoutMs, DEFAULT_BRIDGE_COMMAND_TIMEOUT_MS);
   const shellCommand = preferredShellForSandbox(input.shellCommand);
   const directories = sandboxCallbackBridgeDirectories(input.queueDir);
   let remoteEntrypoint = path.posix.join(input.assetRemoteDir, SANDBOX_CALLBACK_BRIDGE_ENTRYPOINT);

@@ -1,3 +1,4 @@
+import { buildPaperclipMcpBridgeRoutes } from "@paperclipai/adapter-utils/paperclip-mcp-callback-bridge";
 import { asStringArray } from "@paperclipai/adapter-utils/server-utils";
 import { applyObservabilityEnvironment } from "@paperclipai/adapter-utils/agent-observability";
 import { prepareCodexObservabilityProfile, selectedCodexProfile, replaceCodexProfileArgs, disableCodexObservabilityArgs } from "@paperclipai/adapter-utils/codex-observability-profile";
@@ -91,6 +92,7 @@ import {
   seedManagedCodexHome,
   stageCodexHomeForSync,
   mergeManagedCodexMcpGateways,
+  routeManagedCodexMcpGatewaysThroughCallbackBridge,
   writeManagedCodexMcpConfig,
   type ManagedCodexMcpGateway,
 } from "./codex-home.js";
@@ -792,6 +794,13 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   let sshSessionState: Awaited<ReturnType<typeof prepareCodexSshSessionState>> | null = null;
   let observabilityProfile: Awaited<ReturnType<typeof prepareCodexObservabilityProfile>> | null = null;
   let observabilityPreparationFailed = false;
+  let paperclipBridge: Awaited<ReturnType<typeof startAdapterExecutionTargetPaperclipBridge>> = null;
+  let paperclipBridgeStopped = false;
+  const stopPaperclipBridge = async () => {
+    if (!paperclipBridge || paperclipBridgeStopped) return;
+    paperclipBridgeStopped = true;
+    await paperclipBridge.stop();
+  };
   const runSshHostConfigurationCommand = async (command: string) => {
     const result = await runAdapterExecutionTargetShellCommand(runId, executionTarget, command, { cwd: "/", env: {}, timeoutSec: 15 });
     if (result.exitCode !== 0 || result.timedOut) throw new Error("Cannot read remote Codex configuration");
@@ -828,18 +837,60 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       await onLog("stdout", `[paperclip] ${note}\n`);
     }
     const paperclipBaseEnv = buildPaperclipEnv(agent, ctx.agentIdentity);
-    const runtimeMcpGateways = (ctx.runtimeMcp?.getServers() ?? []).map((server) => ({
+    const runtimeMcpServers = ctx.runtimeMcp?.getServers() ?? [];
+    const runtimeMcpGateways = runtimeMcpServers.map((server) => ({
       name: server.name,
       endpointPath: server.url,
       bearerToken: server.token,
     }));
-    const managedMcpGateways = mergeManagedCodexMcpGateways(
+    const managedContextGateways = managedMcpGatewaysFromContext(context);
+    const originalManagedMcpGateways = mergeManagedCodexMcpGateways(
       runtimeMcpGateways,
-      managedMcpGatewaysFromContext(context),
+      managedContextGateways,
     );
+    const trustedMcpRoutes = buildPaperclipMcpBridgeRoutes([
+      ...runtimeMcpServers,
+      ...managedContextGateways.map((gateway) => ({
+        name: gateway.name,
+        url: gateway.endpointPath,
+        token: gateway.bearerToken,
+        connectionId: `managed-context:${gateway.name}`,
+      })),
+    ]);
+    if (executionTargetIsRemote && adapterExecutionTargetUsesPaperclipBridge(executionTarget)) {
+      paperclipBridge = await startAdapterExecutionTargetPaperclipBridge({
+        runId,
+        target: executionTarget,
+        enableSandboxDuplexBridge: adapterExecutionTargetEnablesSandboxDuplexBridge(executionTarget),
+        duplexObservabilityRecorder: adapterExecutionTargetDuplexObservabilityRecorder(executionTarget),
+        // Start the per-run callback service in the environment's base
+        // workspace before preparing the adapter home. This lets the remote
+        // Codex config be written with the bridge token before it is staged;
+        // the controller's host-held MCP credentials never enter the uploaded
+        // CODEX_HOME config.toml.
+        runtimeRootDir: executionTarget?.kind === "remote"
+          ? path.posix.join(executionTarget.remoteCwd, ".paperclip-runtime", "bridge-runs", runId)
+          : undefined,
+        adapterKey: "codex",
+        timeoutSec: resolveAdapterExecutionTargetTimeoutSec(
+          executionTarget,
+          asNumber(config.timeoutSec, 0),
+        ),
+        hostApiToken: authToken,
+        mcpRoutes: trustedMcpRoutes,
+        onLog,
+      });
+    }
+    const managedMcpGateways = routeManagedCodexMcpGatewaysThroughCallbackBridge({
+      gateways: originalManagedMcpGateways,
+      controllerApiUrl: paperclipBaseEnv.PAPERCLIP_API_URL,
+      bridgeApiUrl: paperclipBridge?.env.PAPERCLIP_API_URL,
+      bridgeToken: paperclipBridge?.env.PAPERCLIP_API_KEY,
+      routes: trustedMcpRoutes,
+    });
     const managedMcp = await writeManagedCodexMcpConfig({
       codexHome: runtimeConfigurationHome,
-      apiBaseUrl: paperclipBaseEnv.PAPERCLIP_API_URL,
+      apiBaseUrl: paperclipBridge?.env.PAPERCLIP_API_URL ?? paperclipBaseEnv.PAPERCLIP_API_URL,
       gateways: managedMcpGateways,
     });
     if (managedMcpGateways.length > 0) {
@@ -971,7 +1022,6 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     const restoreRemoteWorkspace = preparedExecutionTargetRuntime
       ? () => preparedExecutionTargetRuntime.restoreWorkspace((line) => onLog("stdout", line))
       : null;
-    let paperclipBridge: Awaited<ReturnType<typeof startAdapterExecutionTargetPaperclipBridge>> = null;
     let executionError: unknown = null;
     try {
       let remoteCodexHome = executionTargetIsRemote && !useSshHostAuth
@@ -1088,22 +1138,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       if (authToken) {
         env.PAPERCLIP_API_KEY = authToken;
       }
-      if (executionTargetIsRemote && adapterExecutionTargetUsesPaperclipBridge(runtimeExecutionTarget)) {
-        paperclipBridge = await startAdapterExecutionTargetPaperclipBridge({
-          runId,
-          target: runtimeExecutionTarget,
-          enableSandboxDuplexBridge: adapterExecutionTargetEnablesSandboxDuplexBridge(runtimeExecutionTarget),
-          duplexObservabilityRecorder: adapterExecutionTargetDuplexObservabilityRecorder(runtimeExecutionTarget),
-          runtimeRootDir: preparedExecutionTargetRuntime?.runtimeRootDir,
-          adapterKey: "codex",
-          timeoutSec,
-          hostApiToken: env.PAPERCLIP_API_KEY,
-          onLog,
-        });
-        if (paperclipBridge) {
-          Object.assign(env, paperclipBridge.env);
-        }
-      }
+      if (paperclipBridge) Object.assign(env, paperclipBridge.env);
       const effectiveEnv = Object.fromEntries(
         Object.entries({ ...process.env, ...env }).filter(
           (entry): entry is [string, string] => typeof entry[1] === "string",
@@ -1749,7 +1784,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       } finally {
         try {
           if (paperclipBridge) {
-            await paperclipBridge.stop();
+            await stopPaperclipBridge();
           }
         } finally {
           if (restoreRemoteWorkspace) {
@@ -1778,6 +1813,9 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       }
     }
   } finally {
+    await stopPaperclipBridge().catch(async () => {
+      await onLog("stderr", "[paperclip] Failed to stop the remote MCP callback bridge.\n");
+    });
     // Remove the staged CODEX_HOME allowlist temp dir on every exit path
     // (teardown AND error), never only the happy path. Cleanup failure is
     // logged, not fatal — a leaked temp dir must not crash the run.

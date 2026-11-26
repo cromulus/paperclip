@@ -1,3 +1,4 @@
+import { authenticatedProxyOwner } from "../middleware/proxy-owner.js";
 import { createLiveEventDelivery, sharedDeliveryRead, type LiveDeliveryReads } from "./live-event-delivery.js";
 import { localAgentProcessBoundary } from "../middleware/local-agent-process-boundary.js";
 import { skillAccessService } from "../services/skill-access.js";
@@ -156,7 +157,8 @@ async function authorizeUpgrade(
   // Browser board context has no bearer token in local_trusted and authenticated modes.
   if (!token) {
     if (opts.deploymentMode === "local_trusted") {
-      if (!(await localAgentProcessBoundary().grantsImplicitBoard(req.socket))) return null;
+      if (!authenticatedProxyOwner(req)
+        && !(await localAgentProcessBoundary().grantsImplicitBoard(req.socket))) return null;
       return {
         companyId,
         actorType: "board",
@@ -391,6 +393,8 @@ export function setupLiveEventsWebSocketServer(
       if (event.type === "agent.status") return { ...event, payload: { agentId: payload.agentId, status: payload.status } };
       if (event.type === "agent.runtime_state.updated") return { ...event, payload: { agentId: payload.agentId } };
       if (event.type === "external_object.updated") return { ...event, payload: { externalObjectId: payload.externalObjectId } };
+      // Only the id: reading the checklist itself goes through the board-only API.
+      if (event.type === "agent_setup_progress.updated") return { ...event, payload: { progressId: payload.progressId } };
       if (event.type.startsWith("plugin.")) return event;
       return null;
     }

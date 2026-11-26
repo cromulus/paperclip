@@ -10,6 +10,7 @@ import {
 
 function makeEnvironment(overrides: Partial<Environment>): Environment {
   return {
+    ownerAgentId: null,
     id: "env-id",
     name: "Env",
     description: null,

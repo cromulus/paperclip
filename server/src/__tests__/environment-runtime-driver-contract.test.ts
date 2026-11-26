@@ -174,6 +174,7 @@ describeEmbeddedPostgres("environment runtime driver contract", () => {
         id: resolvedEnvironmentId,
         name: `${input.driver} contract`,
         description: null,
+        ownerAgentId: null,
         driver: input.driver,
         status: "active",
         config,

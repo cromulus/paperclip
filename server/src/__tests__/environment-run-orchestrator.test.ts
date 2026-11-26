@@ -86,6 +86,7 @@ function makeEnvironment(driver: string = "local"): Environment {
     id: "env-1",
     name: "Test Environment",
     description: null,
+    ownerAgentId: null,
     driver: driver as Environment["driver"],
     status: "active",
     config: {},

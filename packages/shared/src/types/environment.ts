@@ -94,6 +94,7 @@ export interface Environment {
   description: string | null;
   driver: EnvironmentDriver;
   status: EnvironmentStatus;
+  ownerAgentId: string | null;
   config: Record<string, unknown>;
   /** Driver identity from the read API, including when config is redacted. */
   pluginDriver?: Pick<PluginEnvironmentConfig, "pluginKey" | "driverKey">;
