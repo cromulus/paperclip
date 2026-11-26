@@ -276,16 +276,24 @@ describe("Connectors landing page", () => {
 
   it("offers assistant setup from Connections without choosing an agent", async () => {
     await renderBrowse();
-    const button = container.querySelector<HTMLButtonElement>('[aria-label="Set up Assistant Connection (MCP)"]');
+    const button = container.querySelector<HTMLButtonElement>('[aria-label="Open Assistant Connection (MCP)"]');
     expect(button).not.toBeNull();
     await act(() => button!.click());
     expect(navigateMock).toHaveBeenCalledWith("/apps/assistant-connection");
     expect(chatSetupMock).not.toHaveBeenCalled();
   });
 
+  it("does not probe optional assistant status on the catalog route until the user asks", async () => {
+    await renderBrowse();
+    expect(assistantConnectionsMock).not.toHaveBeenCalled();
+    await act(() => container.querySelector<HTMLButtonElement>('[data-app-slug="assistant-connection"] button')!.focus());
+    await flushReact();
+    expect(assistantConnectionsMock).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps assistant setup in the Paperclip catalog when filtering connection sources", async () => {
     await renderBrowse(false);
-    const assistantButton = () => container.querySelector('[aria-label="Set up Assistant Connection (MCP)"]');
+    const assistantButton = () => container.querySelector('[aria-label="Open Assistant Connection (MCP)"]');
     expect(assistantButton()).not.toBeNull();
     await clickButton("Composio", container);
     expect(assistantButton()).toBeNull();

@@ -28,21 +28,23 @@ function AssistantIcon({ assistant }: { assistant: Assistant }) {
   return <Icon className="size-4" aria-hidden="true" />;
 }
 
-export function useAssistantConnections(poll = false) {
+export function useAssistantConnections(poll = false, enabled = true) {
   const { selectedCompanyId } = useCompany();
   const query = useQuery({
     queryKey: connectionsKey, queryFn: publicMcpApi.connections, retry: false,
-    enabled: Boolean(selectedCompanyId), refetchInterval: poll ? 5000 : false,
+    enabled: Boolean(selectedCompanyId) && enabled, refetchInterval: poll ? 5000 : false,
   });
   return { ...query, rows: (query.data ?? []).filter(row => row.companyId === selectedCompanyId && !row.revokedAt && !row.scopes.includes("paperclip:agent")) };
 }
 
 /** Inbound assistant access belongs beside the existing outbound connectors. */
-export function AssistantConnectionCard({ onNavigate }: { onNavigate: (href: string) => void }) {
-  const connections = useAssistantConnections();
+export function AssistantConnectionCard({ onNavigate, statusEnabled = false }: { onNavigate: (href: string) => void; statusEnabled?: boolean }) {
+  const [statusRequested, setStatusRequested] = useState(false);
+  const connections = useAssistantConnections(false, statusEnabled || statusRequested);
   const active = connections.rows;
   const action = !connections.isSuccess ? "Open" : active.length ? "Manage" : "Set up";
-  return <div role="listitem" data-app-slug="assistant-connection" data-connected={connections.isSuccess ? String(active.length > 0) : undefined} className="overflow-hidden rounded-xl border border-border">
+  const requestStatus = () => setStatusRequested(true);
+  return <div role="listitem" data-app-slug="assistant-connection" data-connected={connections.isSuccess ? String(active.length > 0) : undefined} className="overflow-hidden rounded-xl border border-border" onMouseEnter={requestStatus} onFocusCapture={requestStatus}>
     <div className="flex flex-wrap items-center gap-3 px-4 py-4">
       <Paperclip className="size-9 shrink-0 p-1 text-foreground" aria-hidden="true" />
       <div className="min-w-0 flex-1">
@@ -51,7 +53,7 @@ export function AssistantConnectionCard({ onNavigate }: { onNavigate: (href: str
       </div>
       <Button type="button" size="sm" variant="outline" onClick={() => onNavigate(ASSISTANT_CONNECTION_PATH)} aria-label={`${action} Assistant Connection (MCP)`}>{action}</Button>
     </div>
-    {connections.isPending && <p className="border-t border-border px-4 py-3 text-xs text-muted-foreground">Checking your connection status…</p>}
+    {connections.isLoading && <p className="border-t border-border px-4 py-3 text-xs text-muted-foreground">Checking your connection status…</p>}
     {connections.isError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3">
       <p className="text-xs text-destructive">Couldn’t load your connection status.</p>
       <Button size="sm" variant="ghost" disabled={connections.isFetching} onClick={() => void connections.refetch()}>Try again</Button>

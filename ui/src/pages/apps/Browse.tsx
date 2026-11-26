@@ -364,7 +364,6 @@ export function Browse({ renderAccountDetails = (connection) => connection.conne
   const queryClient = useQueryClient();
   const { pushToast } = useToast();
   const { selectedCompanyId } = useCompany();
-  const assistantConnections = useAssistantConnections();
   const { userId: viewingUserId, settled: identitySettled } = useAccountIdentity();
   const { enabled: chatConnectorsEnabled, githubEnabled } = useChatConnectorsEnabled();
   const { enabled: memoryConnectorsEnabled } = useMemoryConnectorsEnabled();
@@ -373,6 +372,7 @@ export function Browse({ renderAccountDetails = (connection) => connection.conne
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [source, setSource] = useState<CatalogSource>("paperclip");
+  const assistantConnections = useAssistantConnections(false, source === "installed");
   const [expandedSearch, setExpandedSearch] = useState(false);
   const [executorToConfigure, setExecutorToConfigure] = useState<ToolConnection | null>(null);
   const [arcadeToConfigure, setArcadeToConfigure] = useState<ToolConnection | null>(null);
@@ -945,7 +945,7 @@ export function Browse({ renderAccountDetails = (connection) => connection.conne
         </div>
       ) : (
         <div className="space-y-3" role="list" aria-label="Connector list">
-          {showAssistantConnection && <AssistantConnectionCard onNavigate={navigate} />}
+          {showAssistantConnection && <AssistantConnectionCard onNavigate={navigate} statusEnabled={source === "installed"} />}
           {paginatedRows.map((row) => (
             <ConnectorCard
               renderAccountDetails={renderAccountDetails}

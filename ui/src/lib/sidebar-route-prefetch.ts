@@ -59,6 +59,21 @@ export function prefetchSidebarRoute(
           queryFn: async () => (await import("../api/tools")).toolsApi.listGallery(companyId),
           staleTime: PREFETCH_STALE_TIME,
         }));
+        tasks.push(queryClient.prefetchQuery({
+          queryKey: queryKeys.tools.applications(companyId),
+          queryFn: async () => (await import("../api/tools")).toolsApi.listApplications(companyId),
+          staleTime: PREFETCH_STALE_TIME,
+        }));
+        tasks.push(queryClient.prefetchQuery({
+          queryKey: queryKeys.tools.connections(companyId),
+          queryFn: async () => (await import("../api/tools")).toolsApi.listConnections(companyId),
+          staleTime: PREFETCH_STALE_TIME,
+        }));
+        tasks.push(queryClient.prefetchQuery({
+          queryKey: queryKeys.chatEndpoints.list(companyId),
+          queryFn: async () => (await import("../api/chatEndpoints")).chatEndpointsApi.list(companyId),
+          staleTime: PREFETCH_STALE_TIME,
+        }));
       }
       break;
     case "/search":

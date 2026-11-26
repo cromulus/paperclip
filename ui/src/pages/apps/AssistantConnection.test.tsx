@@ -15,6 +15,10 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const grant = { id: "grant", companyId: "butter", companyName: "Butter", clientName: "OpenCode", user: { name: "Dotta", image: "/avatar.jpg" }, scopes: ["paperclip:read", "paperclip:write"], createdAt: "2026-10-05T00:00:00Z", revokedAt: null };
 let root: Root, container: HTMLDivElement, client: QueryClient;
 async function flush() { await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); }); }
+async function checkStatus() {
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-app-slug="assistant-connection"] button')?.focus());
+  await flush();
+}
 async function render(element: React.ReactNode = <AssistantConnection initialAssistant="opencode" />) {
   await act(async () => root.render(<QueryClientProvider client={client}>{element}</QueryClientProvider>));
   await flush();
@@ -42,6 +46,8 @@ describe("assistant setup from Connections", () => {
   it("surfaces catalog status failures and recovers without claiming there are no connections", async () => {
     mocks.connections.mockRejectedValue(new Error("offline"));
     await render(<AssistantConnectionCard onNavigate={vi.fn()} />);
+    expect(mocks.connections).not.toHaveBeenCalled();
+    await checkStatus();
     expect(container.querySelector('[role="alert"]')?.textContent).toContain("Couldn’t load your connection status");
     expect(container.querySelector('[aria-label="Set up Assistant Connection (MCP)"]')).toBeNull();
     expect(container.querySelector('[data-connected]')).toBeNull();
@@ -90,6 +96,7 @@ describe("assistant setup from Connections", () => {
     expect(container.textContent).toContain("No assistants connected to Butter yet");
     expect(container.textContent).not.toContain("Dotta’s OpenCode connection");
     await render(<AssistantConnectionCard onNavigate={vi.fn()} />);
+    await checkStatus();
     expect(container.querySelector('[aria-label="Set up Assistant Connection (MCP)"]')).not.toBeNull();
     expect(container.textContent).not.toContain("Dotta’s OpenCode connection");
   });
@@ -141,6 +148,7 @@ describe("assistant setup from Connections", () => {
     const dot = { ...grant, id: "dot", clientName: "Dedicated Dot", scopes: ["paperclip:agent", "offline_access"] };
     mocks.connections.mockResolvedValue([dot]);
     await render(<AssistantConnectionCard onNavigate={vi.fn()} />);
+    await checkStatus();
     expect(container.querySelector('[data-connected]')?.getAttribute("data-connected")).toBe("false");
     expect(container.textContent).not.toContain("Connected as you");
     await render();
