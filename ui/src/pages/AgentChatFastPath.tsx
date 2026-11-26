@@ -358,7 +358,7 @@ export function AgentChatFastPath({ bootstrap, companyId, userId, queryKey, isFe
           {bootstrap.queue.entries.length} message{bootstrap.queue.entries.length === 1 ? "" : "s"} waiting for the current turn. {chat ? <Link className="underline underline-offset-2" to={createIssueDetailPath(chat.id)}>Manage queued messages</Link> : null}
         </p>
       ) : null}
-      <div className="min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 flex-col" data-testid="agent-chat-thread-shell">
         <TaskChatThreadView
           items={items}
           historyControl={historyControl}

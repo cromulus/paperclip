@@ -211,6 +211,10 @@ describe("lightweight Agent Chat route", () => {
     expect(container.textContent).toContain("Finance cached note");
     expect(container.textContent).not.toContain("CoS cached note");
     expect(container.querySelector('[data-testid="agent-chat-fast-path"]')).not.toBeNull();
+    const threadShell = container.querySelector<HTMLElement>('[data-testid="agent-chat-thread-shell"]');
+    expect(threadShell?.classList.contains("flex")).toBe(true);
+    expect(threadShell?.classList.contains("flex-col")).toBe(true);
+    expect(threadShell?.classList.contains("min-h-0")).toBe(true);
     expect(state.setBreadcrumbs).toHaveBeenLastCalledWith([{ label: "Finance Operations" }]);
   });
 
