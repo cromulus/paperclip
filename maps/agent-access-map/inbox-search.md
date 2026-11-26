@@ -58,6 +58,8 @@ issue with only automatic read cleanup under a user identity: Mine and Unread
 must exclude it while activity history retains the row. An explicit recovery
 decision must still establish participation. No live user-inbox proof is claimed.
 
+The board Inbox now requests active-tab compact pages and bounded context batches. Existing REST limit/offset and mutation authorization remain unchanged; browser pagination evidence does not qualify agent inbox access.
+
 Gaps: Agent inbox and Mine support exist; board attention/unread/dismissal aggregation
 is a separate user-only surface.
 

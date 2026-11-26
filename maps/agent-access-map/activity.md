@@ -20,6 +20,7 @@ Review: `baseline`.
 API: `present` — representative operation IDs:
 
 - `GET /api/companies/{companyId}/dashboard`.
+- `GET /api/companies/{companyId}/dashboard/issue-activity` — bounded 14-day UTC status/priority counts, filtered by the actor’s issue-read condition as well as company.
 
 Agent access: `available` — REST / native call_api / CLI dashboard.
 

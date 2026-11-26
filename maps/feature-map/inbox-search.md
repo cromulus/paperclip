@@ -67,6 +67,8 @@ participation, while the cleanup remains in activity history. Record an explicit
 user recovery decision on a separate task and verify it still counts. This
 browser journey remains manual.
 
+Inbox loads the active tab’s task feed in 100-row pages. Use **Load more tasks** to reach later results, including when local filters match nothing on the current pages. Verify tab switching, a failed next page with retry, overlapping rows after live updates, and company switching. Loading another page must preserve the already visible list. These are pagination checks, not new participation or access rules.
+
 ### `decisions`
 
 Automated: [decision queues](../../server/src/__tests__/decision-queues-routes.test.ts) covers route behavior. End-to-end queue-to-source navigation is manual.

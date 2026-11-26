@@ -45,6 +45,8 @@ Open Apps (`/apps`), choose an app, and connect from its landing page. Select an
 available method and access, then complete setup. Existing connections open
 their details; unfinished ones offer a way to finish setup.
 
+Apps navigation intent warms gallery, applications, connections, and chat endpoints together in the selected company cache. Verify fresh prefetched data is reused after navigation. Optional Assistant Connection status waits for card intent or the Installed filter; setup and any resulting errors remain available through the existing Open action. Prefetch does not perform provider login or writes.
+
 ### `mcp-link`
 
 Use **Connect with a link** or `/apps/byo` for a generic MCP server. Paste its

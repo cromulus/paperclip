@@ -39,6 +39,8 @@ Preconditions: follow the [baseline](./README.md#before-driving-a-journey). Prep
 
 Automated: [dashboard service](../../server/src/__tests__/dashboard-service.test.ts) covers server aggregation; [dashboard helpers](../../ui/src/pages/Dashboard.test.ts) is narrower UI helper coverage.
 
+The recent-task list requests ten compact rows ordered by `updatedAt` on the server. Charts use the separate, issue-read-filtered 14-day UTC projection at `/companies/:companyId/dashboard/issue-activity`; the shared dashboard summary remains unchanged. Activity issue labels use a bounded summary batch. Verify the chart totals against fixture tasks and that no full task-list download is required.
+
 Manual: Compare the dashboard with the known fixture tasks and runs. Start and finish a small task, refresh/reload, and verify the summary changes and links reach the right records. Exercise empty data and a failed fetch.
 
 ### `activity-audit`
