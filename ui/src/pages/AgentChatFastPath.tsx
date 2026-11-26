@@ -5,6 +5,8 @@ import type { Agent, Issue, IssueComment } from "@paperclipai/shared";
 import type { LiveEvent } from "@paperclipai/shared";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { TaskChatThreadView } from "@/components/task-chat/TaskChatThreadView";
+import { TaskChatComposerDock } from "@/components/task-chat/TaskChatComposerDock";
+import { TaskChatWindowScroll } from "@/components/task-chat/useWindowAutoFollow";
 import { commentsToTaskChatItems } from "@/components/task-chat/task-chat-adapter";
 import { transcriptToTaskChatItems } from "@/components/task-chat/transcript-adapter";
 import type { TaskChatItem } from "@/components/task-chat/task-chat-model";
@@ -20,6 +22,7 @@ import { createIssueDetailPath } from "@/lib/issueDetailBreadcrumb";
 import { Link, useNavigate } from "@/lib/router";
 import { queryKeys } from "@/lib/queryKeys";
 import { useCompanyLiveEvent } from "@/context/LiveUpdatesProvider";
+import { useSidebar } from "@/context/SidebarContext";
 
 interface AgentChatFastPathProps {
   bootstrap: AgentChatBootstrap;
@@ -49,6 +52,7 @@ export function shouldRefreshAgentChatForLiveEvent(event: LiveEvent, chatId: str
 
 export function AgentChatFastPath({ bootstrap, companyId, userId, queryKey, isFetching, refetchBootstrap }: AgentChatFastPathProps) {
   const queryClient = useQueryClient();
+  const { isMobile } = useSidebar();
   const navigate = useNavigate();
   const agent = bootstrap.agent;
   const chat = bootstrap.chat;
@@ -334,9 +338,52 @@ export function AgentChatFastPath({ bootstrap, companyId, userId, queryKey, isFe
       ? bootstrap.sendGuard.disabledReason ?? "This conversation is temporarily unable to accept a message."
       : isFetching ? "Refreshing conversation status…"
       : null;
+  const threadContentKey = chat?.id + ":" + items.length + ":" + items.map(item => item.id).join(":");
+  const composer = (
+    <form className="rounded-xl border border-input bg-card p-2" onSubmit={(event) => { event.preventDefault(); void submit(); }} aria-label={"Message " + agent.name}>
+      <Textarea
+        value={body}
+        onChange={(event) => { bodyRef.current = event.target.value; setBody(event.target.value); saveDraft(draftKey, event.target.value); }}
+        placeholder={draftAttempt ? "Checking an earlier message before allowing edits…" : "Message " + agent.name + "…"}
+        aria-label={"Message " + agent.name}
+        disabled={submitting || !!draftAttempt}
+        rows={2}
+        className="max-h-40 min-h-12 resize-y border-0 bg-transparent shadow-none focus-visible:ring-0"
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+            event.preventDefault();
+            void submit();
+          }
+        }}
+      />
+      <div className="flex items-center gap-2 pt-1">
+        {chat ? (
+          <Button type="button" size="sm" variant="ghost" asChild>
+            <Link to={createIssueDetailPath(chat.id)} aria-label="Open attachments and task tools"><Paperclip className="size-4" /><span className="sr-only">Attachments and tools</span></Link>
+          </Button>
+        ) : (
+          <Button type="button" size="sm" variant="ghost" disabled={openingDetails || submitting} onClick={() => void openAttachmentsAndTools()} aria-label="Open attachments and task tools">
+            {openingDetails ? <LoaderCircle className="size-4 animate-spin" /> : <Paperclip className="size-4" />}
+            <span className="sr-only">Attachments and tools</span>
+          </Button>
+        )}
+        <span className="min-w-0 flex-1 text-xs text-muted-foreground" role={submitError || statusMessage ? "status" : undefined}>{submitError ?? statusMessage ?? "Enter to send · Shift+Enter for a new line"}</span>
+        {draftAttempt ? (
+          <Button type="button" size="sm" variant="outline" disabled={submitting} onClick={() => void checkOrRetry()}>
+            {submitting ? <LoaderCircle className="size-4 animate-spin" /> : "Check or retry"}
+          </Button>
+        ) : (
+          <Button type="submit" size="icon" aria-label="Send message" disabled={!canSend || !body.trim() || submitting}>
+            {submitting ? <LoaderCircle className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
+          </Button>
+        )}
+      </div>
+    </form>
+  );
 
   return (
-    <div className="mx-auto flex h-full min-h-0 w-full max-w-(--tc-shell-max-w) flex-col gap-3 px-4 py-3" data-testid="agent-chat-fast-path">
+    <div className={`mx-auto flex w-full max-w-(--tc-shell-max-w) flex-col gap-3 px-4 py-3 ${isMobile ? "" : "h-full min-h-0"}`} data-testid="agent-chat-fast-path">
+      <TaskChatWindowScroll contentKey={threadContentKey} enabled={isMobile} />
       {threadHeader}
       {bootstrap.sendGuard.pendingInteractionCount > 0 ? (
         <section className="rounded-lg border border-input bg-card p-3" aria-label="Requests waiting for your response">
@@ -358,7 +405,7 @@ export function AgentChatFastPath({ bootstrap, companyId, userId, queryKey, isFe
           {bootstrap.queue.entries.length} message{bootstrap.queue.entries.length === 1 ? "" : "s"} waiting for the current turn. {chat ? <Link className="underline underline-offset-2" to={createIssueDetailPath(chat.id)}>Manage queued messages</Link> : null}
         </p>
       ) : null}
-      <div className="flex min-h-0 flex-1 flex-col" data-testid="agent-chat-thread-shell">
+      <div className={isMobile ? "flex flex-col" : "flex min-h-0 flex-1 flex-col"} data-testid="task-chat-thread" data-testid-shell="agent-chat-thread-shell">
         <TaskChatThreadView
           items={items}
           historyControl={historyControl}
@@ -369,48 +416,11 @@ export function AgentChatFastPath({ bootstrap, companyId, userId, queryKey, isFe
             </div>
           )}
           tail={items.length === 0 && !chat ? <p className="mx-auto max-w-sm py-8 text-center text-sm text-muted-foreground">Start with a question or idea. Your conversation will be saved when you send the first message.</p> : null}
-          contentKey={chat?.id + ":" + items.length + ":" + items.map(item => item.id).join(":")}
+          contentKey={threadContentKey}
+          scroll={!isMobile}
         />
       </div>
-      <form className="rounded-xl border border-input bg-card p-2" onSubmit={(event) => { event.preventDefault(); void submit(); }} aria-label={"Message " + agent.name}>
-        <Textarea
-          value={body}
-          onChange={(event) => { bodyRef.current = event.target.value; setBody(event.target.value); saveDraft(draftKey, event.target.value); }}
-          placeholder={draftAttempt ? "Checking an earlier message before allowing edits…" : "Message " + agent.name + "…"}
-          aria-label={"Message " + agent.name}
-          disabled={submitting || !!draftAttempt}
-          rows={2}
-          className="max-h-40 min-h-12 resize-y border-0 bg-transparent shadow-none focus-visible:ring-0"
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-              event.preventDefault();
-              void submit();
-            }
-          }}
-        />
-        <div className="flex items-center gap-2 pt-1">
-          {chat ? (
-            <Button type="button" size="sm" variant="ghost" asChild>
-              <Link to={createIssueDetailPath(chat.id)} aria-label="Open attachments and task tools"><Paperclip className="size-4" /><span className="sr-only">Attachments and tools</span></Link>
-            </Button>
-          ) : (
-            <Button type="button" size="sm" variant="ghost" disabled={openingDetails || submitting} onClick={() => void openAttachmentsAndTools()} aria-label="Open attachments and task tools">
-              {openingDetails ? <LoaderCircle className="size-4 animate-spin" /> : <Paperclip className="size-4" />}
-              <span className="sr-only">Attachments and tools</span>
-            </Button>
-          )}
-          <span className="min-w-0 flex-1 text-xs text-muted-foreground" role={submitError || statusMessage ? "status" : undefined}>{submitError ?? statusMessage ?? "Enter to send · Shift+Enter for a new line"}</span>
-          {draftAttempt ? (
-            <Button type="button" size="sm" variant="outline" disabled={submitting} onClick={() => void checkOrRetry()}>
-              {submitting ? <LoaderCircle className="size-4 animate-spin" /> : "Check or retry"}
-            </Button>
-          ) : (
-            <Button type="submit" size="icon" aria-label="Send message" disabled={!canSend || !body.trim() || submitting}>
-              {submitting ? <LoaderCircle className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
-            </Button>
-          )}
-        </div>
-      </form>
+      {isMobile ? <TaskChatComposerDock mobile streamlined>{composer}</TaskChatComposerDock> : composer}
     </div>
   );
 }

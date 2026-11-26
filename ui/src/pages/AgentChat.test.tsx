@@ -10,7 +10,7 @@ import { queryKeys } from "@/lib/queryKeys";
 import { AgentChat } from "./AgentChat";
 import { shouldRefreshAgentChatForLiveEvent } from "./AgentChatFastPath";
 
-const state = vi.hoisted(() => ({ agentRef: "cos", companyId: "company-a", userId: "user-a", setBreadcrumbs: vi.fn(), navigate: vi.fn(), liveHandler: null as ((event: import("@paperclipai/shared").LiveEvent) => void) | null }));
+const state = vi.hoisted(() => ({ agentRef: "cos", companyId: "company-a", userId: "user-a", isMobile: false, setBreadcrumbs: vi.fn(), navigate: vi.fn(), liveHandler: null as ((event: import("@paperclipai/shared").LiveEvent) => void) | null }));
 
 vi.mock("@/lib/router", () => ({
   useParams: () => ({ agentRef: state.agentRef }),
@@ -19,6 +19,7 @@ vi.mock("@/lib/router", () => ({
 }));
 vi.mock("@/context/CompanyContext", () => ({ useCompany: () => ({ selectedCompanyId: state.companyId }) }));
 vi.mock("@/context/BreadcrumbContext", () => ({ useBreadcrumbs: () => ({ setBreadcrumbs: state.setBreadcrumbs }) }));
+vi.mock("@/context/SidebarContext", () => ({ useSidebar: () => ({ isMobile: state.isMobile }) }));
 vi.mock("@/hooks/useAgentChatEnabled", () => ({ useAgentChatEnabled: () => ({ enabled: true, loaded: true }) }));
 vi.mock("@/api/auth", () => ({ authApi: { getSession: async () => ({ user: { id: state.userId } }) } }));
 vi.mock("@/api/agentChats", () => ({ agentChatsApi: { list: vi.fn(), get: vi.fn(), ensure: vi.fn(), bootstrap: vi.fn() } }));
@@ -26,9 +27,12 @@ vi.mock("@/api/issues", () => ({ issuesApi: { addComment: vi.fn() } }));
 vi.mock("@/context/LiveUpdatesProvider", () => ({ useCompanyLiveEvent: (handler: typeof state.liveHandler) => { state.liveHandler = handler; } }));
 vi.mock("@/components/AgentAvatar", () => ({ AgentAvatar: () => null }));
 vi.mock("@/components/task-chat/TaskChatThreadView", () => ({
-  TaskChatThreadView: ({ items, historyControl }: { items: Array<{ kind: string; text?: string }>; historyControl?: React.ReactNode }) => (
-    <div data-testid="thread">{historyControl}{items.map((item, index) => item.kind === "message" ? <p key={index}>{item.text}</p> : null)}</div>
+  TaskChatThreadView: ({ items, historyControl, scroll }: { items: Array<{ kind: string; text?: string }>; historyControl?: React.ReactNode; scroll?: boolean }) => (
+    <div data-testid="thread" data-scroll={scroll === false ? "false" : "true"}>{historyControl}{items.map((item, index) => item.kind === "message" ? <p key={index}>{item.text}</p> : null)}</div>
   ),
+}));
+vi.mock("@/components/task-chat/useWindowAutoFollow", () => ({
+  TaskChatWindowScroll: ({ enabled }: { enabled: boolean }) => <span data-testid="window-scroll-follow" data-enabled={enabled ? "true" : "false"} />,
 }));
 vi.mock("@/components/transcript/useLiveRunTranscripts", () => ({ useLiveRunTranscripts: () => ({ transcriptByRun: new Map() }) }));
 vi.mock("@/components/transcript/useNativeRunTranscripts", () => ({ useNativeRunTranscripts: () => ({ transcriptByRun: new Map() }) }));
@@ -63,6 +67,7 @@ beforeEach(() => {
   state.agentRef = "cos";
   state.companyId = "company-a";
   state.userId = "user-a";
+  state.isMobile = false;
   state.setBreadcrumbs.mockClear();
   state.navigate.mockClear();
   vi.mocked(agentChatsApi.ensure).mockClear();
@@ -211,11 +216,22 @@ describe("lightweight Agent Chat route", () => {
     expect(container.textContent).toContain("Finance cached note");
     expect(container.textContent).not.toContain("CoS cached note");
     expect(container.querySelector('[data-testid="agent-chat-fast-path"]')).not.toBeNull();
-    const threadShell = container.querySelector<HTMLElement>('[data-testid="agent-chat-thread-shell"]');
+    const threadShell = container.querySelector<HTMLElement>('[data-testid-shell="agent-chat-thread-shell"]');
     expect(threadShell?.classList.contains("flex")).toBe(true);
     expect(threadShell?.classList.contains("flex-col")).toBe(true);
     expect(threadShell?.classList.contains("min-h-0")).toBe(true);
     expect(state.setBreadcrumbs).toHaveBeenLastCalledWith([{ label: "Finance Operations" }]);
+  });
+
+  it("uses document-flow scrolling and a mobile composer dock on narrow layouts", async () => {
+    state.isMobile = true;
+    await render();
+
+    expect(container.querySelector('[data-testid="thread"]')?.getAttribute("data-scroll")).toBe("false");
+    expect(container.querySelector('[data-testid="window-scroll-follow"]')?.getAttribute("data-enabled")).toBe("true");
+    expect(container.querySelector('[data-testid="task-chat-composer-dock"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="task-chat-thread"]')?.className).toBe("flex flex-col");
+    expect(container.querySelector('[data-testid="agent-chat-fast-path"]')?.classList.contains("h-full")).toBe(false);
   });
 
   it("does not reuse conversation cache across user or company scopes", async () => {
