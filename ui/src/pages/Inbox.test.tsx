@@ -31,6 +31,7 @@ const apiMocks = vi.hoisted(() => ({
   executionWorkspaceSummaries: vi.fn(),
   issuesList: vi.fn(),
   issuesCount: vi.fn(),
+  issuesMarkRead: vi.fn(),
   issueLabels: vi.fn(),
   retryTask: vi.fn(),
   archiveFromInbox: vi.fn(),
@@ -76,7 +77,7 @@ vi.mock("../api/issues", () => ({
     count: apiMocks.issuesCount,
     listLabels: apiMocks.issueLabels,
     retryTask: apiMocks.retryTask,
-    markRead: vi.fn(),
+    markRead: apiMocks.issuesMarkRead,
     markUnread: vi.fn(),
     archiveFromInbox: apiMocks.archiveFromInbox,
     unarchiveFromInbox: apiMocks.unarchiveFromInbox,
@@ -358,6 +359,7 @@ function resetInboxApiMocks() {
   apiMocks.executionWorkspaceSummaries.mockResolvedValue([]);
   apiMocks.issuesList.mockResolvedValue([]);
   apiMocks.issuesCount.mockResolvedValue({ count: 0 });
+  apiMocks.issuesMarkRead.mockResolvedValue({ ok: true });
   apiMocks.issueLabels.mockResolvedValue([]);
   apiMocks.retryTask.mockReset().mockResolvedValue({ accepted: true, requestId: "retry-intent", presentation: null });
   apiMocks.archiveFromInbox.mockResolvedValue({ id: "issue-1", archivedAt: new Date() });
@@ -900,8 +902,13 @@ describe("Inbox toolbar", () => {
     });
   });
 
-  it("requests live descendant summaries for issue rows", async () => {
+  it("loads only the active issue feed as a 100-row first page", async () => {
     routerMock.location.pathname = "/inbox/mine";
+    apiMocks.issuesList.mockImplementation((_companyId, filters) => Promise.resolve(
+      filters?.inboxArchivedByUserId === "me"
+        ? [createIssue({ id: "mine-only", title: "Mine-only cached task" })]
+        : [],
+    ));
 
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: 0, gcTime: 0 } },
@@ -917,23 +924,199 @@ describe("Inbox toolbar", () => {
     });
 
     await vi.waitFor(() => {
-      expect(apiMocks.issuesList).toHaveBeenCalledTimes(3);
+      expect(apiMocks.issuesList).toHaveBeenCalledTimes(1);
     });
 
-    expect(apiMocks.issuesList.mock.calls.map((call) => call[1]?.includeLiveDescendantSummary)).toEqual([
-      true,
-      true,
-      true,
-    ]);
-    expect(apiMocks.issuesList.mock.calls.map((call) => call[1]?.limit)).toEqual([
-      500,
-      500,
-      500,
-    ]);
+    const [companyId, filters] = apiMocks.issuesList.mock.calls[0]!;
+    expect(companyId).toBe("company-1");
+    expect(filters).toMatchObject({
+      touchedByUserId: "me",
+      inboxArchivedByUserId: "me",
+      includeLiveDescendantSummary: true,
+      sortField: "updated",
+      sortDir: "desc",
+      limit: 100,
+      offset: 0,
+    });
+    await vi.waitFor(() => expect(container.textContent).toContain("Mine-only cached task"));
+
+    routerMock.location.pathname = "/inbox/unread";
+    await act(async () => {
+      root.render(<QueryClientProvider client={queryClient}><Inbox /></QueryClientProvider>);
+    });
+    await vi.waitFor(() => expect(queryClient.isFetching()).toBe(0));
+    expect(apiMocks.issuesList).toHaveBeenCalledTimes(2);
+    expect(apiMocks.issuesList.mock.calls[1]?.[1]).toMatchObject({
+      touchedByUserId: "me",
+      sortField: "updated",
+      sortDir: "desc",
+      limit: 100,
+      offset: 0,
+    });
+    expect(apiMocks.issuesList.mock.calls[1]?.[1]).not.toHaveProperty("inboxArchivedByUserId");
+    await vi.waitFor(() => expect(container.textContent).not.toContain("Mine-only cached task"));
 
     act(() => {
       root.unmount();
     });
+  });
+
+  it("keeps Load more available when local search has no matches in the first page", async () => {
+    routerMock.location.pathname = "/inbox/recent";
+    apiMocks.issuesList.mockImplementation((_companyId, filters) => {
+      if (filters?.q) return Promise.resolve([]);
+      if (filters?.offset === 100) {
+        return Promise.resolve([createIssue({ id: "matching-task", title: "Special matching task" })]);
+      }
+      return Promise.resolve(Array.from({ length: 100 }, (_, index) =>
+        createIssue({ id: `page-one-${index}`, title: `Other task ${index}` }),
+      ));
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 0, gcTime: 0 } },
+    });
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(<QueryClientProvider client={queryClient}><Inbox /></QueryClientProvider>);
+      });
+      await vi.waitFor(() => expect(queryClient.isFetching()).toBe(0));
+
+      const search = container.querySelector<HTMLInputElement>('input[placeholder="Search inbox…"]');
+      expect(search).not.toBeNull();
+      await act(async () => {
+        const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        valueSetter?.call(search!, "special");
+        search!.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await vi.waitFor(() => {
+        expect(container.textContent).toContain("More tasks may match");
+        expect(Array.from(container.querySelectorAll("button")).some((button) => button.textContent === "Load more tasks")).toBe(true);
+      });
+
+      const loadMore = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Load more tasks");
+      await act(async () => {
+        loadMore?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      await vi.waitFor(() => expect(apiMocks.issuesList.mock.calls.some((call) => call[1]?.offset === 100)).toBe(true));
+      const offsetPage = queryClient.getQueryCache().findAll({ queryKey: ["issues", "company-1", "touched-by-me"] })
+        .find((query) => query.queryKey.at(-1) === 100);
+      expect(offsetPage?.state.data).toEqual([expect.objectContaining({ id: "matching-task" })]);
+      await vi.waitFor(() => expect(container.textContent).toContain("Special matching task"));
+      expect(apiMocks.issuesList.mock.calls.some((call) => call[1]?.offset === 100)).toBe(true);
+    } finally {
+      act(() => root.unmount());
+      queryClient.clear();
+    }
+  });
+
+  it("keeps the loaded page visible and lets the user retry a failed next page", async () => {
+    routerMock.location.pathname = "/inbox/recent";
+    let nextPageAttempts = 0;
+    apiMocks.issuesList.mockImplementation((_companyId, filters) => {
+      if (filters?.offset === 100) {
+        nextPageAttempts += 1;
+        if (nextPageAttempts === 1) return Promise.reject(new Error("temporary page failure"));
+        return Promise.resolve([createIssue({ id: "page-two-task", title: "Page two task" })]);
+      }
+      return Promise.resolve(Array.from({ length: 100 }, (_, index) =>
+        createIssue({ id: `page-one-${index}`, title: `Page one task ${index}` }),
+      ));
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 0, gcTime: 0 } },
+    });
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(<QueryClientProvider client={queryClient}><Inbox /></QueryClientProvider>);
+      });
+      await vi.waitFor(() => expect(container.textContent).toContain("Page one task 0"));
+      const loadMore = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Load more tasks");
+      await act(async () => {
+        loadMore?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      await vi.waitFor(() => expect(container.textContent).toContain("Could not load the next page."));
+      expect(container.textContent).toContain("Page one task 0");
+      const retry = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Retry loading more tasks");
+      await act(async () => {
+        retry?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      await vi.waitFor(() => expect(container.textContent).toContain("Page two task"));
+      expect(nextPageAttempts).toBe(2);
+    } finally {
+      act(() => root.unmount());
+      queryClient.clear();
+    }
+  });
+
+  it("labels and limits mark-read actions to the shown unread page while more pages exist", async () => {
+    routerMock.location.pathname = "/inbox/unread";
+    apiMocks.issuesList.mockImplementation((_companyId, filters) => Promise.resolve(
+      Array.from({ length: filters?.offset === 100 ? 1 : 100 }, (_, index) => createIssue({
+        id: `unread-${filters?.offset ?? 0}-${index}`,
+        title: `Unread task ${filters?.offset ?? 0}-${index}`,
+        isUnreadForMe: true,
+      })),
+    ));
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 0, gcTime: 0 } },
+    });
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(<QueryClientProvider client={queryClient}><Inbox /></QueryClientProvider>);
+      });
+      await vi.waitFor(() => expect(queryClient.isFetching()).toBe(0));
+      const shownButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Mark shown as read");
+      expect(shownButton).not.toBeUndefined();
+      await act(async () => {
+        shownButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      const dialog = document.body.querySelector('[role="dialog"]');
+      expect(dialog?.textContent).toContain("shown unread");
+      expect(dialog?.textContent).toContain("Load more tasks first");
+      const confirm = Array.from(dialog?.querySelectorAll("button") ?? []).find((button) => button.textContent === "Mark shown as read");
+      await act(async () => {
+        confirm?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      await vi.waitFor(() => expect(apiMocks.issuesMarkRead).toHaveBeenCalledTimes(100));
+      expect(apiMocks.issuesMarkRead.mock.calls.every(([issueId]) => issueId.startsWith("unread-0-"))).toBe(true);
+    } finally {
+      act(() => root.unmount());
+      queryClient.clear();
+    }
+  });
+
+  it("surfaces first-page errors with a retry instead of reporting Inbox zero", async () => {
+    routerMock.location.pathname = "/inbox/mine";
+    let attempts = 0;
+    apiMocks.issuesList.mockImplementation(() => {
+      attempts += 1;
+      return attempts === 1
+        ? Promise.reject(new Error("temporary initial page failure"))
+        : Promise.resolve([createIssue({ id: "recovered-task", title: "Recovered task" })]);
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 0, gcTime: 0 } },
+    });
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(<QueryClientProvider client={queryClient}><Inbox /></QueryClientProvider>);
+      });
+      await vi.waitFor(() => expect(container.querySelector('[role="alert"]')?.textContent).toContain("Could not load tasks."));
+      expect(container.textContent).not.toContain("Inbox zero.");
+      const retry = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Retry");
+      await act(async () => {
+        retry?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      await vi.waitFor(() => expect(container.textContent).toContain("Recovered task"));
+      expect(attempts).toBe(2);
+    } finally {
+      act(() => root.unmount());
+      queryClient.clear();
+    }
   });
 
   it("paints row hover via CSS only, without moving React selection state", async () => {

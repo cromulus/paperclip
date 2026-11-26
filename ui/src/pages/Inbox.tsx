@@ -1,6 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "@/lib/router";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
 import { deriveOriginatingActor, INBOX_MINE_ISSUE_STATUS_FILTER, isHeartbeatRunVisibleInMine } from "@paperclipai/shared";
 import { usePublishSharedQueryData, useSharedPollingQuery } from "@/hooks/useSharedPolling";
 import { approvalsApi } from "../api/approvals";
@@ -191,9 +191,17 @@ import {
 } from "../lib/task-date-groups";
 
 const INBOX_HEARTBEAT_RUN_LIMIT = 200;
-const INBOX_ISSUE_LIST_LIMIT = 500;
+const INBOX_ISSUE_PAGE_SIZE = 100;
 const INBOX_HOT_PATH_STALE_MS = 30_000;
 const INBOX_COLLECTION_KEY = "inbox";
+
+function mergeInboxIssuePages(pages: readonly Issue[][]): Issue[] {
+  const issues = new Map<string, Issue>();
+  for (const page of pages) {
+    for (const issue of page) issues.set(issue.id, issue);
+  }
+  return [...issues.values()];
+}
 
 type StreamlinedInboxViewState = InboxFilterPreferences & {
   showDateGroupSeparators: boolean;
@@ -985,79 +993,136 @@ function StreamlinedInbox({
   });
   usePublishSharedQueryData(sharedDashboard, dashboard, dashboardUpdatedAt);
 
-  const inboxIssuesQueryKey = [...queryKeys.issues.list(selectedCompanyId!), "compact", "with-routine-executions", "live-descendant-summary", INBOX_ISSUE_LIST_LIMIT] as const;
-  const sharedInboxIssues = useSharedPollingQuery<Issue[]>({
-    companyId: selectedCompanyId,
-    resourceKey: "inbox:issues",
-    queryKey: inboxIssuesQueryKey,
-    enabled: !!selectedCompanyId,
+  const [mineIssuePageState, setMineIssuePageState] = useState({ companyId: selectedCompanyId, count: 1 });
+  const [touchedIssuePageState, setTouchedIssuePageState] = useState({ companyId: selectedCompanyId, count: 1 });
+  const mineIssuePageCount = mineIssuePageState.companyId === selectedCompanyId ? mineIssuePageState.count : 1;
+  const touchedIssuePageCount = touchedIssuePageState.companyId === selectedCompanyId ? touchedIssuePageState.count : 1;
+  const loadMineIssuePage = useCallback(() => {
+    setMineIssuePageState((current) => ({
+      companyId: selectedCompanyId,
+      count: (current.companyId === selectedCompanyId ? current.count : 1) + 1,
+    }));
+  }, [selectedCompanyId]);
+  const loadTouchedIssuePage = useCallback(() => {
+    setTouchedIssuePageState((current) => ({
+      companyId: selectedCompanyId,
+      count: (current.companyId === selectedCompanyId ? current.count : 1) + 1,
+    }));
+  }, [selectedCompanyId]);
+  const mineIssueFeedEnabled = !!selectedCompanyId && tab === "mine";
+  const touchedIssueFeedEnabled = !!selectedCompanyId && (
+    tab === "recent"
+    || tab === "unread"
+    || (tab === "all" && (allCategoryFilter === "everything" || allCategoryFilter === "issues_i_touched"))
+    || (tab === "mine" && normalizedSearchQuery.length > 0)
+  );
+  const mineIssuesBaseQueryKey = [
+    ...queryKeys.issues.listMineByMe(selectedCompanyId!),
+    "compact", "with-routine-executions", "live-descendant-summary", "updated-desc", "paged", INBOX_ISSUE_PAGE_SIZE,
+  ] as const;
+  const touchedIssuesBaseQueryKey = [
+    ...queryKeys.issues.listTouchedByMe(selectedCompanyId!),
+    "compact", "with-routine-executions", "live-descendant-summary", "updated-desc", "paged", INBOX_ISSUE_PAGE_SIZE,
+  ] as const;
+  const mineIssuePages = useQueries({
+    queries: Array.from({ length: mineIssuePageCount }, (_, pageIndex) => {
+      const offset = pageIndex * INBOX_ISSUE_PAGE_SIZE;
+      return {
+        queryKey: [...mineIssuesBaseQueryKey, "offset", offset] as const,
+        queryFn: () => issuesApi.listCompact(selectedCompanyId!, {
+          touchedByUserId: "me",
+          inboxArchivedByUserId: "me",
+          status: INBOX_MINE_ISSUE_STATUS_FILTER,
+          includeRoutineExecutions: true,
+          includeLiveDescendantSummary: true,
+          sortField: "updated",
+          sortDir: "desc",
+          limit: INBOX_ISSUE_PAGE_SIZE,
+          offset,
+        }).then((rows) => rows as Issue[]),
+        enabled: mineIssueFeedEnabled,
+        refetchOnWindowFocus: false,
+        staleTime: INBOX_HOT_PATH_STALE_MS,
+      };
+    }),
+    combine: (results) => ({
+      pages: results.map((result) => result.data ?? []),
+      isLoading: results.some((result) => result.isLoading),
+      firstPageIsLoading: results[0]?.isLoading ?? false,
+      lastPageSize: results.at(-1)?.data?.length ?? 0,
+      previousPageSize: results.at(-2)?.data?.length ?? 0,
+      firstPage: results[0]?.data,
+      firstPageUpdatedAt: results[0]?.dataUpdatedAt ?? 0,
+      lastPageLoading: results.at(-1)?.isLoading ?? false,
+      lastPageError: results.at(-1)?.isError ?? false,
+      refetchLastPage: () => results.at(-1)?.refetch(),
+      firstPageError: results[0]?.isError === true && results[0]?.data === undefined,
+      refetchFirstPage: () => results[0]?.refetch(),
+    }),
   });
-  const { data: issues, isLoading: isIssuesLoading, dataUpdatedAt: issuesUpdatedAt } = useQuery({
-    queryKey: inboxIssuesQueryKey,
-    queryFn: () =>
-      issuesApi.listCompact(selectedCompanyId!, {
-        includeRoutineExecutions: true,
-        includeLiveDescendantSummary: true,
-        limit: INBOX_ISSUE_LIST_LIMIT,
-      }).then((rows) => rows as Issue[]),
-    enabled: !!selectedCompanyId,
-    refetchOnWindowFocus: false,
-    staleTime: INBOX_HOT_PATH_STALE_MS,
+  const touchedIssuePages = useQueries({
+    queries: Array.from({ length: touchedIssuePageCount }, (_, pageIndex) => {
+      const offset = pageIndex * INBOX_ISSUE_PAGE_SIZE;
+      return {
+        queryKey: [...touchedIssuesBaseQueryKey, "offset", offset] as const,
+        queryFn: () => issuesApi.listCompact(selectedCompanyId!, {
+          touchedByUserId: "me",
+          status: INBOX_MINE_ISSUE_STATUS_FILTER,
+          includeRoutineExecutions: true,
+          includeLiveDescendantSummary: true,
+          sortField: "updated",
+          sortDir: "desc",
+          limit: INBOX_ISSUE_PAGE_SIZE,
+          offset,
+        }).then((rows) => rows as Issue[]),
+        enabled: touchedIssueFeedEnabled,
+        refetchOnWindowFocus: false,
+        staleTime: INBOX_HOT_PATH_STALE_MS,
+      };
+    }),
+    combine: (results) => ({
+      pages: results.map((result) => result.data ?? []),
+      isLoading: results.some((result) => result.isLoading),
+      firstPageIsLoading: results[0]?.isLoading ?? false,
+      lastPageSize: results.at(-1)?.data?.length ?? 0,
+      previousPageSize: results.at(-2)?.data?.length ?? 0,
+      firstPage: results[0]?.data,
+      firstPageUpdatedAt: results[0]?.dataUpdatedAt ?? 0,
+      lastPageLoading: results.at(-1)?.isLoading ?? false,
+      lastPageError: results.at(-1)?.isError ?? false,
+      refetchLastPage: () => results.at(-1)?.refetch(),
+      firstPageError: results[0]?.isError === true && results[0]?.data === undefined,
+      refetchFirstPage: () => results[0]?.refetch(),
+    }),
   });
-  usePublishSharedQueryData(sharedInboxIssues, issues, issuesUpdatedAt);
-  const {
-    data: mineIssuesRaw = [],
-    isLoading: isMineIssuesLoading,
-    dataUpdatedAt: mineIssuesUpdatedAt,
-  } = useQuery({
-    queryKey: [...queryKeys.issues.listMineByMe(selectedCompanyId!), "compact", "with-routine-executions", "live-descendant-summary", INBOX_ISSUE_LIST_LIMIT] as const,
-    queryFn: () =>
-      issuesApi.listCompact(selectedCompanyId!, {
-        touchedByUserId: "me",
-        inboxArchivedByUserId: "me",
-        status: INBOX_MINE_ISSUE_STATUS_FILTER,
-        includeRoutineExecutions: true,
-        includeLiveDescendantSummary: true,
-        limit: INBOX_ISSUE_LIST_LIMIT,
-      }).then((rows) => rows as Issue[]),
-    enabled: !!selectedCompanyId,
-    refetchOnWindowFocus: false,
-    staleTime: INBOX_HOT_PATH_STALE_MS,
-  });
-  const mineIssuesQueryKey = [...queryKeys.issues.listMineByMe(selectedCompanyId!), "compact", "with-routine-executions", "live-descendant-summary", INBOX_ISSUE_LIST_LIMIT] as const;
+  const mineIssuesRaw = mergeInboxIssuePages(mineIssuePages.pages);
+  const touchedIssuesRaw = mergeInboxIssuePages(touchedIssuePages.pages);
+  const isMineIssuesLoading = mineIssueFeedEnabled && mineIssuePages.firstPageIsLoading;
+  const isTouchedIssuesLoading = touchedIssueFeedEnabled && touchedIssuePages.firstPageIsLoading;
+  const mineIssuesFirstPageKey = [...mineIssuesBaseQueryKey, "offset", 0] as const;
+  const touchedIssuesFirstPageKey = [...touchedIssuesBaseQueryKey, "offset", 0] as const;
   const sharedMineIssues = useSharedPollingQuery<Issue[]>({
     companyId: selectedCompanyId,
     resourceKey: "inbox:mine-issues",
-    queryKey: mineIssuesQueryKey,
-    enabled: !!selectedCompanyId,
+    queryKey: mineIssuesFirstPageKey,
+    enabled: mineIssueFeedEnabled,
   });
-  usePublishSharedQueryData(sharedMineIssues, mineIssuesRaw, mineIssuesUpdatedAt);
-  const {
-    data: touchedIssuesRaw = [],
-    isLoading: isTouchedIssuesLoading,
-    dataUpdatedAt: touchedIssuesUpdatedAt,
-  } = useQuery({
-    queryKey: [...queryKeys.issues.listTouchedByMe(selectedCompanyId!), "compact", "with-routine-executions", "live-descendant-summary", INBOX_ISSUE_LIST_LIMIT] as const,
-    queryFn: () =>
-      issuesApi.listCompact(selectedCompanyId!, {
-        touchedByUserId: "me",
-        status: INBOX_MINE_ISSUE_STATUS_FILTER,
-        includeRoutineExecutions: true,
-        includeLiveDescendantSummary: true,
-        limit: INBOX_ISSUE_LIST_LIMIT,
-      }).then((rows) => rows as Issue[]),
-    enabled: !!selectedCompanyId,
-    refetchOnWindowFocus: false,
-    staleTime: INBOX_HOT_PATH_STALE_MS,
-  });
-  const touchedIssuesQueryKey = [...queryKeys.issues.listTouchedByMe(selectedCompanyId!), "compact", "with-routine-executions", "live-descendant-summary", INBOX_ISSUE_LIST_LIMIT] as const;
   const sharedTouchedIssues = useSharedPollingQuery<Issue[]>({
     companyId: selectedCompanyId,
     resourceKey: "inbox:touched-issues",
-    queryKey: touchedIssuesQueryKey,
-    enabled: !!selectedCompanyId,
+    queryKey: touchedIssuesFirstPageKey,
+    enabled: touchedIssueFeedEnabled,
   });
-  usePublishSharedQueryData(sharedTouchedIssues, touchedIssuesRaw, touchedIssuesUpdatedAt);
+  usePublishSharedQueryData(sharedMineIssues, mineIssuePages.firstPage, mineIssuePages.firstPageUpdatedAt);
+  usePublishSharedQueryData(sharedTouchedIssues, touchedIssuePages.firstPage, touchedIssuePages.firstPageUpdatedAt);
+  const mineHasMore = mineIssueFeedEnabled && (
+    mineIssuePages.lastPageSize === INBOX_ISSUE_PAGE_SIZE
+    || (mineIssuePages.previousPageSize === INBOX_ISSUE_PAGE_SIZE && (mineIssuePages.lastPageLoading || mineIssuePages.lastPageError))
+  );
+  const touchedHasMore = touchedIssueFeedEnabled && (
+    touchedIssuePages.lastPageSize === INBOX_ISSUE_PAGE_SIZE
+    || (touchedIssuePages.previousPageSize === INBOX_ISSUE_PAGE_SIZE && (touchedIssuePages.lastPageLoading || touchedIssuePages.lastPageError))
+  );
 
   const { data: heartbeatRuns, isLoading: isRunsLoading } = useQuery({
     queryKey: [...queryKeys.heartbeats(selectedCompanyId!), "limit", INBOX_HEARTBEAT_RUN_LIMIT],
@@ -1065,6 +1130,44 @@ function StreamlinedInbox({
     enabled: !!selectedCompanyId,
     refetchOnWindowFocus: false,
     staleTime: INBOX_HOT_PATH_STALE_MS,
+  });
+  const issueContextIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const run of heartbeatRuns ?? []) {
+      const issueId = readIssueIdFromRun(run);
+      if (issueId) ids.add(issueId);
+    }
+    const visibleFeedIssues = tab === "mine"
+      ? mineIssueFeedEnabled ? mineIssuesRaw : []
+      : tab === "blocked"
+        ? []
+        : touchedIssueFeedEnabled ? touchedIssuesRaw : [];
+    for (const issue of visibleFeedIssues) {
+      if (issue.parentId) ids.add(issue.parentId);
+    }
+    return [...ids].sort();
+  }, [heartbeatRuns, mineIssueFeedEnabled, mineIssuesRaw, tab, touchedIssueFeedEnabled, touchedIssuesRaw]);
+  const issueContextBatches = useMemo(() => {
+    const batches: string[][] = [];
+    for (let index = 0; index < issueContextIds.length; index += INBOX_ISSUE_PAGE_SIZE) {
+      batches.push(issueContextIds.slice(index, index + INBOX_ISSUE_PAGE_SIZE));
+    }
+    return batches;
+  }, [issueContextIds]);
+  const issueContextQueries = useQueries({
+    queries: issueContextBatches.map((ids) => ({
+      queryKey: [...queryKeys.issues.list(selectedCompanyId!), "compact", "inbox-context", ...ids] as const,
+      queryFn: () => issuesApi.listCompact(selectedCompanyId!, {
+        ids,
+        limit: ids.length,
+        includeRoutineExecutions: true,
+        includeLiveDescendantSummary: true,
+      }).then((rows) => rows as Issue[]),
+      enabled: !!selectedCompanyId,
+      refetchOnWindowFocus: false,
+      staleTime: INBOX_HOT_PATH_STALE_MS,
+    })),
+    combine: (results) => results.flatMap((result) => result.data ?? []),
   });
   const liveRunsQueryKey = queryKeys.liveRuns(selectedCompanyId!);
   const sharedLiveRuns = useSharedPollingQuery({
@@ -1111,12 +1214,16 @@ function StreamlinedInbox({
   );
 
   const mineIssues = useMemo(
-    () => getRecentTouchedIssues(mineIssuesRaw).filter((issue) => !locallyArchivedIssueIds.has(issue.id)),
-    [locallyArchivedIssueIds, mineIssuesRaw],
+    () => mineIssueFeedEnabled
+      ? getRecentTouchedIssues(mineIssuesRaw, Number.POSITIVE_INFINITY).filter((issue) => !locallyArchivedIssueIds.has(issue.id))
+      : [],
+    [locallyArchivedIssueIds, mineIssueFeedEnabled, mineIssuesRaw],
   );
   const touchedIssues = useMemo(
-    () => getRecentTouchedIssues(touchedIssuesRaw).filter((issue) => !locallyArchivedIssueIds.has(issue.id)),
-    [locallyArchivedIssueIds, touchedIssuesRaw],
+    () => touchedIssueFeedEnabled
+      ? getRecentTouchedIssues(touchedIssuesRaw, Number.POSITIVE_INFINITY).filter((issue) => !locallyArchivedIssueIds.has(issue.id))
+      : [],
+    [locallyArchivedIssueIds, touchedIssueFeedEnabled, touchedIssuesRaw],
   );
   const shouldUseIssueSearchSupplement =
     !!selectedCompanyId
@@ -1140,14 +1247,31 @@ function StreamlinedInbox({
       }).then((rows) => rows as Issue[]),
     enabled: shouldUseIssueSearchSupplement,
   });
+  const searchParentIds = useMemo(
+    () => [...new Set(remoteIssueSearchResults.flatMap((issue) => issue.parentId ? [issue.parentId] : []))].slice(0, 100).sort(),
+    [remoteIssueSearchResults],
+  );
+  const { data: searchParentIssues = [] } = useQuery({
+    queryKey: [...queryKeys.issues.list(selectedCompanyId!), "compact", "inbox-search-parent-context", ...searchParentIds],
+    queryFn: () => issuesApi.listCompact(selectedCompanyId!, {
+      ids: searchParentIds,
+      limit: searchParentIds.length,
+      includeRoutineExecutions: true,
+      includeLiveDescendantSummary: true,
+    }).then((rows) => rows as Issue[]),
+    enabled: !!selectedCompanyId && searchParentIds.length > 0,
+    refetchOnWindowFocus: false,
+    staleTime: INBOX_HOT_PATH_STALE_MS,
+  });
   const liveIssueIds = useMemo(
     () => collectLiveIssueIds(liveRuns, [
-      ...(issues ?? []),
-      ...mineIssuesRaw,
-      ...touchedIssuesRaw,
+      ...mineIssues,
+      ...touchedIssues,
+      ...issueContextQueries,
+      ...searchParentIssues,
       ...remoteIssueSearchResults,
     ]),
-    [issues, liveRuns, mineIssuesRaw, remoteIssueSearchResults, touchedIssuesRaw],
+    [issueContextQueries, liveRuns, mineIssues, remoteIssueSearchResults, searchParentIssues, touchedIssues],
   );
   const inboxIssueIdsForExternalObjectSummaries = useMemo(() => {
     const issueIds = new Set<string>();
@@ -1257,9 +1381,14 @@ function StreamlinedInbox({
 
   const issueById = useMemo(() => {
     const map = new Map<string, Issue>();
-    for (const issue of issues ?? []) map.set(issue.id, issue);
+    for (const issue of [
+      ...mineIssues,
+      ...touchedIssues,
+      ...issueContextQueries,
+      ...searchParentIssues,
+    ]) map.set(issue.id, issue as Issue);
     return map;
-  }, [issues]);
+  }, [issueContextQueries, mineIssues, searchParentIssues, touchedIssues]);
   const projectById = useMemo(() => {
     const map = new Map<string, { name: string; color: string | null }>();
     for (const project of projects ?? []) {
@@ -2428,10 +2557,16 @@ function StreamlinedInbox({
     !isJoinRequestsLoading &&
     !isApprovalsLoading &&
     !isDashboardLoading &&
-    !isIssuesLoading &&
     !isMineIssuesLoading &&
     !isTouchedIssuesLoading &&
     !isRunsLoading;
+  const activeIssueFeedError =
+    (mineIssueFeedEnabled && mineIssuePages.firstPageError)
+    || (touchedIssueFeedEnabled && touchedIssuePages.firstPageError);
+  const hasMoreInboxIssues = mineHasMore || touchedHasMore;
+  const isLoadingMoreInboxIssues =
+    (mineHasMore && mineIssuePages.lastPageLoading)
+    || (touchedHasMore && touchedIssuePages.lastPageLoading);
 
   const showSeparatorBefore = (key: SectionKey) => visibleSections.indexOf(key) > 0;
   const markAllReadIssues = (tab === "mine" ? visibleMineIssues : unreadTouchedIssues)
@@ -2439,6 +2574,8 @@ function StreamlinedInbox({
   const unreadIssueIds = markAllReadIssues
     .map((issue) => issue.id);
   const canMarkAllRead = unreadIssueIds.length > 0;
+  const unreadIssueListHasMore = tab === "mine" ? mineHasMore : touchedHasMore;
+  const markReadActionLabel = unreadIssueListHasMore ? "Mark shown as read" : "Mark all as read";
   const activeIssueFilterCount = countActiveIssueFilters(issueFilters, true);
   const activeInboxScopeFilterCount = tab === "all"
     ? Number(allCategoryFilter !== "everything")
@@ -2705,14 +2842,15 @@ function StreamlinedInbox({
                     onClick={() => setShowMarkAllReadConfirm(true)}
                     disabled={markAllReadMutation.isPending}
                   >
-                    {markAllReadMutation.isPending ? "Marking…" : "Mark all as read"}
+                    {markAllReadMutation.isPending ? "Marking…" : markReadActionLabel}
                   </Button>
                   <Dialog open={showMarkAllReadConfirm} onOpenChange={setShowMarkAllReadConfirm}>
                     <DialogContent className="sm:max-w-md">
                       <DialogHeader>
-                        <DialogTitle>Mark all as read?</DialogTitle>
+                        <DialogTitle>{unreadIssueListHasMore ? "Mark shown unread tasks as read?" : "Mark all as read?"}</DialogTitle>
                         <DialogDescription>
-                          This will mark {unreadIssueIds.length} unread {unreadIssueIds.length === 1 ? "item" : "items"} as read.
+                          This will mark {unreadIssueIds.length} {unreadIssueListHasMore ? "shown " : ""}unread {unreadIssueIds.length === 1 ? "item" : "items"} as read.
+                          {unreadIssueListHasMore ? " Load more tasks first to include the remaining unread items." : null}
                         </DialogDescription>
                       </DialogHeader>
                       <DialogFooter>
@@ -2725,7 +2863,7 @@ function StreamlinedInbox({
                             markAllReadMutation.mutate(unreadIssueIds);
                           }}
                         >
-                          Mark all as read
+                          {markReadActionLabel}
                         </Button>
                       </DialogFooter>
                     </DialogContent>
@@ -2745,6 +2883,22 @@ function StreamlinedInbox({
 
       {approvalsError && <p className="text-sm text-destructive">{approvalsError.message}</p>}
       {actionError && <p className="text-sm text-destructive">{actionError}</p>}
+      {activeIssueFeedError ? (
+        <div className="flex items-center gap-3 text-sm text-destructive" role="alert">
+          <span>Could not load tasks.</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (mineIssueFeedEnabled && mineIssuePages.firstPageError) void mineIssuePages.refetchFirstPage();
+              if (touchedIssueFeedEnabled && touchedIssuePages.firstPageError) void touchedIssuePages.refetchFirstPage();
+            }}
+          >
+            Retry
+          </Button>
+        </div>
+      ) : null}
 
       {tab === "blocked" ? (
         <div className="-mx-2 sm:mx-0">
@@ -2773,7 +2927,7 @@ function StreamlinedInbox({
         <PageSkeleton variant="inbox" />
       )}
 
-      {tab !== "blocked" && allLoaded && visibleSections.length === 0 && (
+      {tab !== "blocked" && allLoaded && visibleSections.length === 0 && !hasMoreInboxIssues && !activeIssueFeedError && (
         <EmptyState
           icon={searchQuery.trim() ? Search : InboxIcon}
           message={
@@ -3321,6 +3475,39 @@ function StreamlinedInbox({
           </div>
         </>
       )}
+
+      {tab !== "blocked" && hasMoreInboxIssues ? (
+        <div className="flex flex-col items-center gap-2 py-2 text-center">
+          {normalizedSearchQuery ? (
+            <p className="text-xs text-muted-foreground">More tasks may match. Load the next page to continue searching.</p>
+          ) : null}
+          {(mineHasMore && mineIssuePages.lastPageError) || (touchedHasMore && touchedIssuePages.lastPageError) ? (
+            <p className="text-xs text-destructive">Could not load the next page.</p>
+          ) : null}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={isLoadingMoreInboxIssues}
+            onClick={() => {
+              if (mineHasMore) {
+                if (mineIssuePages.lastPageError) void mineIssuePages.refetchLastPage();
+                else loadMineIssuePage();
+              }
+              if (touchedHasMore) {
+                if (touchedIssuePages.lastPageError) void touchedIssuePages.refetchLastPage();
+                else loadTouchedIssuePage();
+              }
+            }}
+          >
+            {isLoadingMoreInboxIssues
+              ? "Loading…"
+              : ((mineHasMore && mineIssuePages.lastPageError) || (touchedHasMore && touchedIssuePages.lastPageError))
+                ? "Retry loading more tasks"
+                : "Load more tasks"}
+          </Button>
+        </div>
+      ) : null}
 
       {showAlertsSection && (
         <>

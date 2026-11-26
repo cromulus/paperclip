@@ -842,9 +842,12 @@ describe("inbox helpers", () => {
     });
 
     const recentIssues = getRecentTouchedIssues(issues);
+    const allLoadedIssues = getRecentTouchedIssues(issues, Number.POSITIVE_INFINITY);
 
     expect(recentIssues).toHaveLength(RECENT_ISSUES_LIMIT);
     expect(getUnreadTouchedIssues(recentIssues).map((issue) => issue.id)).toEqual(["1", "2", "3"]);
+    expect(allLoadedIssues).toHaveLength(RECENT_ISSUES_LIMIT + 5);
+    expect(allLoadedIssues.slice(0, RECENT_ISSUES_LIMIT)).toEqual(recentIssues);
   });
 
   it("matches workspace names when inbox issue search includes workspace labels", () => {
