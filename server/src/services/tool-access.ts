@@ -1,3 +1,4 @@
+import { DELIVERY_QUEUES, notifyDeliveryWork } from "./delivery-work-notifications.js";
 import { createConnectionCredentialValidation } from "./tool-access/connections/credential-validation.js";
 import { createConnectionGrants } from "./tool-access/connections/grants.js";
 import { createConnectionInstalls } from "./tool-access/connections/installs.js";
@@ -797,7 +798,11 @@ export function toolAccessService(
   const connectionHealth = createConnectionHealth(db, { now, audit, getConnectionRow, discovery: catalogDiscovery, setupPolicy, resolveCredentialHeaders, refreshManagedGitHubGrantAccess, ensureRuntimeSlot, stdioTemplateId });
   const { updateConnectionHealth, checkConnectionHealth, sweepConnectionHealth } = connectionHealth;
   const refreshCatalog = createToolCatalogPublication(db, { now, audit, getConnectionRow, discoverTools: catalogDiscovery.discoverTools, assertConnectorConnectionSetupEnabled, updateConnectionHealth, vaultGrantForConnection, ensureRuntimeSlot, enableCatalogEntriesByDefault });
-  const catalogReader = createToolCatalogReader(db, options, now, getConnectionRow, refreshCatalog, toCatalogEntryForConnection);
+  const catalogReader = createToolCatalogReader(db, options, now, getConnectionRow, refreshCatalog, toCatalogEntryForConnection, async (connection, actor) => {
+    const grant = await vaultGrantForConnection(connection, actor);
+    const oauth = asRecord(asRecord(grant?.providerTenant).oauth);
+    return oauth.scopeSource === "requested_fallback" || !Array.isArray(oauth.scopes) ? [] : oauth.scopes.filter((scope): scope is string => typeof scope === "string");
+  });
   const listAppsNeedingAttention = createToolAppAttention(db, now);
   const aggregatorAccounts = createAggregatorAccounts(db, { options, secrets, audit, credentials: credentialAccess, getConnectionRow, requestRemoteHttpEndpoint, remoteTools: catalogDiscovery.remoteTools });
   const oauthState = createOAuthStateStore(db);
@@ -3725,6 +3730,23 @@ export function toolAccessService(
   }
 
   return {
+    /** Background notifications use only a live organization grant on the separated service. */
+    googlePushCredentials: async (companyId: string, connectionId: string) => {
+      const connection = await getConnectionRow(connectionId, companyId);
+      const service = connection.config.sourceTemplateKey;
+      if (!connection.enabled || connection.status !== "active" || connection.transport !== "rest_api" || connection.config.connectionMethodKey !== "customer-workspace-api"
+        || !["gmail", "google-calendar"].includes(String(service)) || connection.credentialPolicy === "per_user" || asRecord(connection.config.googlePush).enabled !== true) throw forbidden("Google notifications are not authorized");
+      const actor = { actorType: "system" as const, actorId: "google-push" };
+      let grant = await vaultGrantForConnection(connection, actor);
+      if (!grant || grant.kind !== "organization" || grant.status !== "active") throw forbidden("An active organization Google grant is required");
+      const headers = await resolveCredentialHeaders(connection, actor);
+      grant = await vaultGrantForConnection(connection, actor);
+      const oauth = asRecord(asRecord(grant?.providerTenant).oauth);
+      const scopes = Array.isArray(oauth.scopes) ? oauth.scopes : [];
+      if (!grant || grant.status !== "active" || grant.kind !== "organization" || oauth.scopeSource === "requested_fallback"
+        || !(service === "gmail" ? scopes.includes("https://www.googleapis.com/auth/gmail.readonly") : scopes.some(s => ["https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.events.readonly"].includes(String(s))))) throw forbidden("Google has not granted this notification permission");
+      return { headers, grantId: grant.id };
+    },
     /** Identity-only verification: no bot installation/repository access required. */
     verifyPersonalGitHubIdentity: async (companyId: string, connectionId: string, userId: string) => {
       const [connection] = await db.select().from(toolConnections).where(and(eq(toolConnections.companyId, companyId), eq(toolConnections.id, connectionId), eq(toolConnections.enabled, true)));
@@ -4565,7 +4587,7 @@ export function toolAccessService(
     ): Promise<ToolConnection> => {
       const existing = await getConnectionRow(connectionId);
       if (existing.connectionPurpose === "ai" && (input.config || input.transportConfig || input.credentialRefs || input.credentialSecretRefs || (input.credentialPolicy && input.credentialPolicy !== existing.credentialPolicy))) throw badRequest("Use AI account reconnect to change credentials. Provider, sign-in method, and ownership cannot be changed.");
-      const config = normalizeGoogleSheetsConnectionConfig(
+      let config = normalizeGoogleSheetsConnectionConfig(
         input.config ?? input.transportConfig ?? existing.config,
       );
       if (input.config?.methodConfig !== undefined && typeof config.sourceTemplateKey === "string") {
@@ -4607,9 +4629,19 @@ export function toolAccessService(
         })
         .where(eq(toolConnections.id, connectionId))
         .returning();
-      const [row] = existing.transport === "chat_sdk"
+      const configuredGooglePush = asRecord(existing.config.googlePush).enabled === true || asRecord(config.googlePush).enabled === true;
+      const [row] = existing.transport === "chat_sdk" || configuredGooglePush
         ? await db.transaction(async tx => {
-            await notifyChatEndpointWork(tx, existing.id);
+            if (existing.transport === "chat_sdk") await notifyChatEndpointWork(tx, existing.id);
+            if (configuredGooglePush) {
+              const [fresh] = await tx.select({config:toolConnections.config}).from(toolConnections).where(eq(toolConnections.id,existing.id)).for("update");
+              if (!input.config && !input.transportConfig && fresh) config = {...config,googlePush:fresh.config.googlePush};
+              if ((input.enabled === true && !existing.enabled) || (input.status === "active" && existing.status !== "active")) {
+                const state = asRecord(config.googlePush);
+                if (state.enabled === true) config = {...config,googlePush:{...state,status:"awaiting_authorization",nextAt:Date.now()}};
+              }
+              await notifyDeliveryWork(tx,DELIVERY_QUEUES.googlePush);
+            }
             const rows = await write(tx as unknown as Db);
             // Credential resolution must never observe the binding rebuild's
             // delete/insert gap after a configuration wake.

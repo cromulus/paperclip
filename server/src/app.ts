@@ -1,3 +1,4 @@
+import { googlePushRoutes } from "./routes/google-push.js";
 import { promptInjectionPreventionRoutes } from "./routes/prompt-injection-prevention.js";
 import { voiceSessionRoutes, voiceWebhookRoutes } from "./routes/voice-sessions.js";
 import { eq } from "drizzle-orm";
@@ -659,6 +660,7 @@ export async function createApp(
   // board/agent bearer authentication. Mount before actorMiddleware so its
   // per-session Bearer cannot be mistaken for an agent API key.
   app.use(voiceWebhookRoutes(db, chatChannels.voice));
+  app.use(googlePushRoutes(db, opts.webhookPublicBaseUrl));
   app.use(
     actorMiddleware(db, {
       deploymentMode: opts.deploymentMode,

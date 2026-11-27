@@ -429,10 +429,10 @@ export function createToolCatalogDiscovery(db: Db, { now, audit, secrets, creden
     const nativeProvider = nativeProviderCatalogFor(connection);
     if (nativeProvider) {
       const headers = credentialHeaders ?? await resolveCredentialHeaders(connection, actor);
-      const grantedScopes = connection.config.sourceTemplateKey === "google-workspace"
+      const grantedScopes = nativeProvider.isToolGranted
         ? googleWorkspaceGrantedScopes(await vaultGrantForConnection(connection, actor)) : undefined;
       await nativeProvider.probe(connection, headers, (url, init) => requestRemoteHttpEndpoint(new URL(url), init), { grantedScopes });
-      return grantedScopes ? nativeProvider.tools.filter(tool => isGoogleWorkspaceToolGranted(tool.name, grantedScopes)) : nativeProvider.tools;
+      return nativeProvider.isToolGranted ? nativeProvider.tools.filter(tool => nativeProvider.isToolGranted!(tool.name, grantedScopes ?? [])) : nativeProvider.tools;
     }
     if (isBrowserUseConnection(connection)) {
       const headers = credentialHeaders ?? await resolveCredentialHeaders(connection, actor);

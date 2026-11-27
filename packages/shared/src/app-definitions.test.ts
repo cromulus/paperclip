@@ -794,10 +794,10 @@ describe("AppDefinition catalog", () => {
     const drive = APP_DEFINITIONS.find((app) => app.slug === "google-drive")!;
     const gmail = APP_DEFINITIONS.find((app) => app.slug === "gmail")!;
     expect(getAvailableConnectionMethod(drive)?.key).toBe(
-      "customer-write-oauth",
+      "customer-workspace-api",
     );
     expect(getAvailableConnectionMethod(gmail)?.key).toBe(
-      "customer-draft-oauth",
+      "customer-workspace-api",
     );
     expect(gmail.methods.filter((method) => method.capabilityProfile?.key === "archive")
       .map((method) => method.key)).toEqual(["paperclip-archive", "customer-archive-oauth"]);
@@ -807,7 +807,7 @@ describe("AppDefinition catalog", () => {
           candidate.ownershipModes.includes("customer"),
         ),
       )?.key,
-    ).toBe("customer-write-oauth");
+    ).toBe("customer-workspace-api");
     expect(
       getRecommendedConnectionMethod(
         gmail.methods.filter((candidate) =>
@@ -849,9 +849,13 @@ describe("AppDefinition catalog", () => {
       "google-workspace-search",
     ];
     for (const slug of googleWorkspaceMcpSlugs) {
-      const prerequisite = APP_DEFINITIONS.find(
-        (app) => app.slug === slug,
-      )?.setupPrerequisite;
+      const app = APP_DEFINITIONS.find((app) => app.slug === slug)!;
+      if (app.methods.some(method => method.transport === "rest_api")) {
+        expect(app.setupPrerequisite, slug).toBeUndefined();
+        expect(app.methods.filter(method => method.transport === "mcp_remote").every(method => method.warnings?.some(w => w.includes("Preview")) || method.guidanceMd.includes("MCP")), slug).toBe(true);
+        continue;
+      }
+      const prerequisite = app.setupPrerequisite;
       expect(prerequisite?.actionUrl, slug).toBe(
         "https://developers.google.com/workspace/preview",
       );
@@ -999,6 +1003,7 @@ describe("AppDefinition catalog", () => {
         (method) =>
           method.auth === "oauth" &&
           method.oauthStrategy === undefined &&
+          method.transport === "mcp_remote" &&
           method.capabilityProfile?.key === expected.capability,
       );
       expect(customer, `${expected.profile}:customer-fallback`).toMatchObject({

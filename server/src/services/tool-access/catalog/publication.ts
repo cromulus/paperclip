@@ -115,7 +115,9 @@ export function createToolCatalogPublication(db: Db, { now, audit, getConnection
     const existingByName = new Map(
       existingRows.map((entry) => [entry.toolName, entry]),
     );
-    const nativeProvider = Boolean(nativeProviderCatalogFor(connection));
+    const provider = nativeProviderCatalogFor(connection);
+    const nativeProvider = Boolean(provider);
+    const granted = provider?.isToolGranted ?? isGoogleWorkspaceToolGranted;
     if (connection.config.sourceTemplateKey === "google-workspace"
       || nativeProvider || isRemoteMcpConnectorMethod(connection.config.sourceTemplateKey, connection.config.connectionMethodKey)) {
       const discoveredNames = new Set(descriptors.map((descriptor) => descriptor.name));
@@ -124,7 +126,7 @@ export function createToolCatalogPublication(db: Db, { now, audit, getConnection
       // still supports. Never combine scopes from different grants into authority.
       let otherWorkspaceGrants: string[][] = [];
       let selectedWorkspaceScopes: string[] = [];
-      if (connection.config.sourceTemplateKey === "google-workspace") {
+      if (connection.config.sourceTemplateKey === "google-workspace" || provider?.isToolGranted) {
         const selected = await vaultGrantForConnection(connection, actor);
         selectedWorkspaceScopes = googleWorkspaceGrantedScopes(selected);
         const grants = await db.select().from(connectionGrants).where(and(
@@ -137,8 +139,8 @@ export function createToolCatalogPublication(db: Db, { now, audit, getConnection
       // tools a successful, sufficiently authorized discovery actually removed.
       const removedStatus = nativeProvider ? "removed" : "disabled";
       const removedIds = existingRows.filter((entry) => !discoveredNames.has(entry.toolName) && entry.status !== removedStatus
-        && !(otherWorkspaceGrants.some((scopes) => isGoogleWorkspaceToolGranted(entry.toolName, scopes))
-          && !isGoogleWorkspaceToolGranted(entry.toolName, selectedWorkspaceScopes)
+        && !(otherWorkspaceGrants.some((scopes) => granted(entry.toolName, scopes))
+          && !granted(entry.toolName, selectedWorkspaceScopes)
           && !unavailableServices.includes(googleWorkspaceToolTarget(entry.toolName)?.service ?? ""))).map((entry) => entry.id);
       if (removedIds.length) await publish(tx => tx.update(toolCatalogEntries)
         .set({ status: removedStatus, quarantineReason: nativeProvider ? "provider_tool_removed" : "mcp_tool_removed", updatedAt: refreshedAt })

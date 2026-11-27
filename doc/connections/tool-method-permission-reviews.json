@@ -2924,6 +2924,197 @@
         "https://developers.google.com/workspace/docs/api/auth"
       ],
       "reviewedAt": "2026-11-24"
+    },
+    {
+      "app": "gmail",
+      "method": "customer-workspace-api",
+      "auth": "oauth",
+      "policy": "explicit",
+      "requestedScopes": [
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.compose"
+      ],
+      "capability": "write",
+      "supportedActions": "Typed service-specific native API operations; Gmail never sends mail.",
+      "evidence": [
+        "https://developers.google.com/identity/protocols/oauth2/web-server"
+      ],
+      "reviewedAt": "2026-11-27",
+      "liveProof": "pending-user-consent"
+    },
+    {
+      "app": "google-calendar",
+      "method": "customer-workspace-api",
+      "auth": "oauth",
+      "policy": "explicit",
+      "requestedScopes": [
+        "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+        "https://www.googleapis.com/auth/calendar.events"
+      ],
+      "capability": "write",
+      "supportedActions": "Typed service-specific native API operations; Gmail never sends mail.",
+      "evidence": [
+        "https://developers.google.com/identity/protocols/oauth2/web-server"
+      ],
+      "reviewedAt": "2026-11-27",
+      "liveProof": "pending-user-consent"
+    },
+    {
+      "app": "google-drive",
+      "method": "customer-workspace-api",
+      "auth": "oauth",
+      "policy": "explicit",
+      "requestedScopes": [
+        "https://www.googleapis.com/auth/drive.readonly",
+        "https://www.googleapis.com/auth/drive.file"
+      ],
+      "capability": "write",
+      "supportedActions": "Typed service-specific native API operations; Gmail never sends mail.",
+      "evidence": [
+        "https://developers.google.com/identity/protocols/oauth2/web-server"
+      ],
+      "reviewedAt": "2026-11-27",
+      "liveProof": "pending-user-consent"
+    },
+    {
+      "app": "google-docs",
+      "method": "customer-workspace-api",
+      "auth": "oauth",
+      "policy": "explicit",
+      "requestedScopes": [
+        "https://www.googleapis.com/auth/documents"
+      ],
+      "capability": "write",
+      "supportedActions": "Typed service-specific native API operations; Gmail never sends mail.",
+      "evidence": [
+        "https://developers.google.com/identity/protocols/oauth2/web-server"
+      ],
+      "reviewedAt": "2026-11-27",
+      "liveProof": "pending-user-consent"
+    },
+    {
+      "app": "google-meet",
+      "method": "native-api",
+      "auth": "oauth",
+      "policy": "explicit",
+      "requestedScopes": [
+        "https://www.googleapis.com/auth/meetings.space.readonly"
+      ],
+      "capability": "read",
+      "supportedActions": "Read conference records, participants, transcript entries and recording references. No recording or transcription is started.",
+      "evidence": [
+        "https://developers.google.com/workspace/meet/api/guides/overview"
+      ],
+      "reviewedAt": "2026-11-27",
+      "liveProof": "not-run"
+    },
+    {
+      "app": "google-routes",
+      "method": "native-api",
+      "auth": "api_key",
+      "policy": "explicit",
+      "requestedScopes": [],
+      "capability": "read",
+      "supportedActions": "Bounded service queries only; no mailbox access. API keys must be restricted to this API.",
+      "evidence": [
+        "https://developers.google.com/maps/documentation/routes"
+      ],
+      "reviewedAt": "2026-11-27",
+      "liveProof": "not-run"
+    },
+    {
+      "app": "google-places",
+      "method": "native-api",
+      "auth": "api_key",
+      "policy": "explicit",
+      "requestedScopes": [],
+      "capability": "read",
+      "supportedActions": "Bounded service queries only; no mailbox access. API keys must be restricted to this API.",
+      "evidence": [
+        "https://developers.google.com/maps/documentation/places/web-service/overview"
+      ],
+      "reviewedAt": "2026-11-27",
+      "liveProof": "not-run"
+    },
+    {
+      "app": "google-translate",
+      "method": "native-api",
+      "auth": "api_key",
+      "policy": "explicit",
+      "requestedScopes": [],
+      "capability": "read",
+      "supportedActions": "Bounded service queries only; no mailbox access. API keys must be restricted to this API.",
+      "evidence": [
+        "https://cloud.google.com/translate/docs/reference/rest/v2/translate"
+      ],
+      "reviewedAt": "2026-11-27",
+      "liveProof": "not-run"
+    },
+    {
+      "app": "google-workspace-search",
+      "method": "native-api",
+      "auth": "oauth",
+      "policy": "explicit",
+      "requestedScopes": [
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/drive.readonly",
+        "https://www.googleapis.com/auth/calendar.events.readonly"
+      ],
+      "capability": "read",
+      "supportedActions": "Bounded read-only search of separately consented Gmail, Drive and Calendar. Partial failures remain explicit.",
+      "evidence": [
+        "https://developers.google.com/workspace/guides/enable-apis"
+      ],
+      "reviewedAt": "2026-11-27",
+      "liveProof": "not-run"
+    },
+    {
+      "app": "google-people",
+      "method": "native-api",
+      "auth": "oauth",
+      "policy": "explicit",
+      "requestedScopes": [
+        "https://www.googleapis.com/auth/contacts.readonly"
+      ],
+      "capability": "read",
+      "supportedActions": "Typed contact search, bounded cell reads/literal writes, or presentation reads/create/revision-bound template edits as appropriate to this service. No Gmail tools.",
+      "evidence": [
+        "https://developers.google.com/people/v1/contacts"
+      ],
+      "reviewedAt": "2026-11-27",
+      "liveProof": "not-run"
+    },
+    {
+      "app": "google-sheets",
+      "method": "native-api",
+      "auth": "oauth",
+      "policy": "explicit",
+      "requestedScopes": [
+        "https://www.googleapis.com/auth/spreadsheets"
+      ],
+      "capability": "write",
+      "supportedActions": "Typed contact search, bounded cell reads/literal writes, or presentation reads/create/revision-bound template edits as appropriate to this service. No Gmail tools.",
+      "evidence": [
+        "https://developers.google.com/workspace/sheets/api/reference/rest"
+      ],
+      "reviewedAt": "2026-11-27",
+      "liveProof": "not-run"
+    },
+    {
+      "app": "google-slides",
+      "method": "native-api",
+      "auth": "oauth",
+      "policy": "explicit",
+      "requestedScopes": [
+        "https://www.googleapis.com/auth/presentations"
+      ],
+      "capability": "write",
+      "supportedActions": "Typed contact search, bounded cell reads/literal writes, or presentation reads/create/revision-bound template edits as appropriate to this service. No Gmail tools.",
+      "evidence": [
+        "https://developers.google.com/workspace/slides/api/reference/rest"
+      ],
+      "reviewedAt": "2026-11-27",
+      "liveProof": "not-run"
     }
   ]
 }

@@ -9,6 +9,14 @@ const ROOTS = {
   calendar: "https://www.googleapis.com",
 } as const;
 const METHOD = "customer-workspace-api";
+export const GOOGLE_NATIVE_SERVICE_PREFIXES: Record<string, readonly string[]> = {
+  gmail: ["gmail__"], "google-calendar": ["calendar__"],
+  "google-drive": ["drive__"], "google-docs": ["docs__"],
+};
+export function googleNativeConnectionAllows(connection: {config?: Record<string, unknown>}, name: string) {
+  const slug = String(connection.config?.sourceTemplateKey ?? "");
+  return slug === "google-workspace" || Boolean(GOOGLE_NATIVE_SERVICE_PREFIXES[slug]?.some(prefix => name.startsWith(prefix)));
+}
 const MIME_TYPES = [
   "application/vnd.google-apps.document",
   "application/vnd.google-apps.spreadsheet",
@@ -98,6 +106,7 @@ const operation = (name: string, title: string, description: string, inputSchema
 });
 
 const OPERATIONS = [
+  operation("gmail__list_history", "Read Gmail changes after a history cursor", "Read one bounded page of message-added history after a verified Gmail push cursor. A 404 requires a bounded resync.", {type:"object",additionalProperties:false,properties:{startHistoryId:{type:"string",pattern:"^[0-9]{1,30}$"},pageToken:{type:"string",maxLength:4096},maxResults:{type:"integer",minimum:1,maximum:100}},required:["startHistoryId"]}),
   operation("gmail__search_messages", "Search Gmail messages", "Search messages using a bounded Gmail query and return message/thread IDs for follow-up reads.", SCHEMAS.gmailSearch),
   operation("gmail__get_message", "Get a Gmail message", "Read one message by ID.", SCHEMAS.idRead),
   operation("gmail__get_thread", "Get a Gmail thread", "Read one thread by ID.", SCHEMAS.idRead),
@@ -129,8 +138,8 @@ type Operation = typeof OPERATIONS[number];
 const byName = new Map<string, Operation>(OPERATIONS.map((item) => [item.name, item]));
 
 export function isGoogleWorkspaceApiConnection(connection: { transport: string; config?: Record<string, unknown> }) {
-  return connection.transport === "rest_api" && connection.config?.sourceTemplateKey === "google-workspace"
-    && connection.config.connectionMethodKey === METHOD;
+  return connection.transport === "rest_api" && (connection.config?.sourceTemplateKey === "google-workspace" || Object.hasOwn(GOOGLE_NATIVE_SERVICE_PREFIXES, String(connection.config?.sourceTemplateKey)))
+    && connection.config?.connectionMethodKey === METHOD;
 }
 
 function pathValue(value: unknown) {
@@ -220,6 +229,9 @@ export function googleWorkspaceApiClient(headers: Record<string, string>, reques
     const pathId = (key: string) => pathValue(input[key]);
     let init: RequestInit;
     switch (operation.name) {
+      case "gmail__list_history":
+        url.pathname = "/gmail/v1/users/me/history";
+        return send(addParams(url, {startHistoryId:input.startHistoryId,pageToken:input.pageToken,maxResults:input.maxResults??50,historyTypes:"messageAdded"}), {method:"GET"});
       case "gmail__search_messages":
         url.pathname = "/gmail/v1/users/me/messages";
         init = { method: "GET" };
@@ -333,7 +345,7 @@ export async function executeGoogleWorkspaceApiTool(input: {
   toolName: string; parameters: unknown; grantedScopes?: readonly string[]; signal?: AbortSignal; deadlineAt?: number;
 }) {
   if (!input.binding.agentId || input.connection.companyId !== input.binding.companyId || input.connection.transport !== "rest_api"
-    || input.connection.config.sourceTemplateKey !== "google-workspace" || input.connection.config.connectionMethodKey !== METHOD) {
+    || !isGoogleWorkspaceApiConnection({ ...input.connection, transport: input.connection.transport ?? "" }) || !googleNativeConnectionAllows(input.connection, input.toolName)) {
     throw failure(404, "google_workspace_connection_not_found", "Connection not found.");
   }
   const operation = byName.get(input.toolName);
@@ -353,25 +365,25 @@ export async function probeGoogleWorkspaceApi(connection: { transport: string; c
   const scopes = options?.grantedScopes ?? [];
   if (!scopes.length) throw failure(403, "google_workspace_scope_missing", "Reconnect Google Workspace and grant a read scope for a supported service.");
   const client = googleWorkspaceApiClient(headers, request, scopes, options?.signal, options?.deadlineAt);
-  if (scopes.includes("https://www.googleapis.com/auth/gmail.readonly")) {
+  if (scopes.includes("https://www.googleapis.com/auth/gmail.readonly") && googleNativeConnectionAllows(connection, "gmail__list_labels")) {
     const response = await client.execute("gmail__list_labels", {});
     const labels = record(response).labels;
     return { service: "gmail", authenticated: true, labelsReturned: Array.isArray(labels) ? labels.length : 0 };
   }
-  if (scopes.includes("https://www.googleapis.com/auth/drive.readonly")) {
+  if (scopes.includes("https://www.googleapis.com/auth/drive.readonly") && googleNativeConnectionAllows(connection, "drive__search_files")) {
     const response = await client.execute("drive__search_files", { query: "trashed = true", pageSize: 1 });
     const files = record(response).files;
     return { service: "drive", authenticated: true, sampleCount: Array.isArray(files) ? files.length : 0 };
   }
-  if (scopes.includes("https://www.googleapis.com/auth/calendar.calendarlist.readonly")) {
+  if (scopes.includes("https://www.googleapis.com/auth/calendar.calendarlist.readonly") && googleNativeConnectionAllows(connection, "calendar__list_calendars")) {
     const response = await client.execute("calendar__list_calendars", { maxResults: 1 });
     const items = record(response).items;
     return { service: "calendar", authenticated: true, sampleCount: Array.isArray(items) ? items.length : 0 };
   }
-  if (scopes.includes("https://www.googleapis.com/auth/documents.readonly") || scopes.includes("https://www.googleapis.com/auth/documents")) {
+  if (googleNativeConnectionAllows(connection,"docs__read_doc") && (scopes.includes("https://www.googleapis.com/auth/documents.readonly") || scopes.includes("https://www.googleapis.com/auth/documents"))) {
     return { service: "docs", verified: "consent_only", providerRequestVerified: false };
   }
-  const grantedOperation = OPERATIONS.find((operation) => isGoogleWorkspaceToolGranted(operation.name, scopes));
+  const grantedOperation = OPERATIONS.find((operation) => googleNativeConnectionAllows(connection, operation.name) && isGoogleWorkspaceToolGranted(operation.name, scopes));
   if (grantedOperation) {
     const service = googleWorkspaceToolTarget(grantedOperation.name)?.service ?? "workspace";
     return { service, verified: "consent_only", providerRequestVerified: false };

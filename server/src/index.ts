@@ -1,3 +1,4 @@
+import { googlePushService } from "./services/connectors/google-workspace-api/push.js";
 import { loginCleanupSchedule } from "./services/login-cleanup-state.js";
 import { registerLoginCleanupWork } from "./services/login-cleanup-work.js";
 import { timeStartupRecovery } from "./startup-recovery-timing.js";
@@ -1345,6 +1346,11 @@ async function startServerWithDatabaseTeardown(
   const accountingWorker = registerCostAccountingWork(db, deliveryWork, accountingHeartbeat.reconcileCostAccounting);
   server.on("close", accountingWorker.stop);
   skillSourceSync.start(deliveryWork);
+  const googlePush = googlePushService(db as any);
+  deliveryWork.register(DELIVERY_QUEUES.googlePush, {
+    retryMs: 30_000, run: signal => googlePush.sweep(signal), hasPending: async () => false,
+    nextRunAt: googlePush.nextRunAt, pausePassiveMaintenance: true,
+  });
   const caseHandoffDeliveries = caseHandoffDeliveryService(db as any, { heartbeat: environmentLeaseCleanupHeartbeat });
   deliveryWork.register(DELIVERY_QUEUES.caseHandoffs, {
     retryMs: 5_000,

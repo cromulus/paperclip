@@ -1,3 +1,4 @@
+import { prepareGooglePushOAuthConfig } from "../../connectors/google-workspace-api/push-oauth.js";
 import { credentialScope } from "./client-settings.js";
 import { withoutOAuthRefreshLease } from "./refresh-leases.js";
 import type { ActorInfo } from "../types.js";
@@ -331,6 +332,7 @@ export function createDirectOAuthCallback(db: Db, dependencies: Dependencies) {
             },
           },
         };
+        await prepareGooglePushOAuthConfig(tx, connection, nextConfig);
         const [updatedConnection] = await tx
           .update(toolConnections)
           .set({
@@ -610,6 +612,7 @@ export function createDirectOAuthCallback(db: Db, dependencies: Dependencies) {
           },
         },
       };
+      await prepareGooglePushOAuthConfig(tx, connection, nextConfig);
       const [updatedConnection] = await tx
         .update(toolConnections)
         .set({

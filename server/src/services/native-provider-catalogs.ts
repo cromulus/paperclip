@@ -1,4 +1,6 @@
-import { GOOGLE_WORKSPACE_API_TOOLS, googleWorkspaceApiRisk, isCurrentGoogleWorkspaceApiCatalogEntry, isGoogleWorkspaceApiToolName, isGoogleWorkspaceApiConnection, executeGoogleWorkspaceApiTool, probeGoogleWorkspaceApi } from "./connectors/google-workspace-api/client.js";
+import { GOOGLE_ADDITIONAL_PROVIDERS } from "./connectors/google-workspace-api/services.js";
+import { isGoogleWorkspaceToolGranted } from "@paperclipai/shared";
+import { GOOGLE_NATIVE_SERVICE_PREFIXES, GOOGLE_WORKSPACE_API_TOOLS, googleWorkspaceApiRisk, isCurrentGoogleWorkspaceApiCatalogEntry, isGoogleWorkspaceApiToolName, isGoogleWorkspaceApiConnection, executeGoogleWorkspaceApiTool, probeGoogleWorkspaceApi } from "./connectors/google-workspace-api/client.js";
 import { DAYTONA_TOOLS, daytonaClient, daytonaRisk, executeDaytonaTool, isCurrentDaytonaCatalogEntry, isDaytonaConnection, isDaytonaToolName } from "./daytona.js";
 import type { NativeCatalogEntry, NativeRestRequest } from "./native-rest-client.js";
 import { UNIKRAFT_DEFAULT_METRO, UNIKRAFT_TOOLS, executeUnikraftTool, isCurrentUnikraftCatalogEntry, isUnikraftConnection,
@@ -19,6 +21,7 @@ export type NativeProviderCatalog = {
   tools: typeof DAYTONA_TOOLS;
   isConnection(connection: ConnectionShape): boolean;
   isToolName(name: string): boolean;
+  isToolGranted?(name: string, scopes: readonly string[]): boolean;
   risk(name: string): "read" | "write" | "destructive";
   isCurrentEntry(entry: NativeCatalogEntry): boolean;
   probe(connection: ConnectionShape, headers: Record<string, string>, request: NativeRestRequest, context?: { grantedScopes?: readonly string[] }): Promise<unknown>;
@@ -26,9 +29,18 @@ export type NativeProviderCatalog = {
 };
 
 export const NATIVE_PROVIDER_CATALOGS: readonly NativeProviderCatalog[] = [
+  ...GOOGLE_ADDITIONAL_PROVIDERS,
+  ...Object.entries(GOOGLE_NATIVE_SERVICE_PREFIXES).map(([slug, prefixes]): NativeProviderCatalog => ({
+    slug, name: `Google ${slug} API`, tools: GOOGLE_WORKSPACE_API_TOOLS.filter(tool => prefixes.some(prefix => tool.name.startsWith(prefix))),
+    isConnection: connection => connection.transport === "rest_api" && connection.config?.sourceTemplateKey === slug && connection.config.connectionMethodKey === "customer-workspace-api",
+    isToolName: name => prefixes.some(prefix => name.startsWith(prefix)) && isGoogleWorkspaceApiToolName(name),
+    isToolGranted: isGoogleWorkspaceToolGranted, risk: googleWorkspaceApiRisk, isCurrentEntry: isCurrentGoogleWorkspaceApiCatalogEntry,
+    probe: (connection, headers, request, context) => probeGoogleWorkspaceApi(connection, headers, request, context), execute: executeGoogleWorkspaceApiTool,
+  })),
   {
     slug: "google-workspace", name: "Google Workspace APIs", tools: GOOGLE_WORKSPACE_API_TOOLS,
-    isConnection: isGoogleWorkspaceApiConnection, isToolName: isGoogleWorkspaceApiToolName,
+    isConnection: connection => connection.config?.sourceTemplateKey === "google-workspace" && isGoogleWorkspaceApiConnection(connection), isToolName: isGoogleWorkspaceApiToolName,
+    isToolGranted: isGoogleWorkspaceToolGranted,
     risk: googleWorkspaceApiRisk, isCurrentEntry: isCurrentGoogleWorkspaceApiCatalogEntry,
     probe: (connection, headers, request, context) => probeGoogleWorkspaceApi(connection, headers, request, context),
     execute: executeGoogleWorkspaceApiTool,

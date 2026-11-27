@@ -1854,6 +1854,10 @@ const reviewedGoogleSlugs = [
   "google-chat",
   "google-people",
   "google-workspace-search",
+  "google-meet",
+  "google-routes",
+  "google-places",
+  "google-translate",
 
 ];
 for (const slug of reviewedGoogleSlugs) {

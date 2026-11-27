@@ -46,8 +46,8 @@ function call(toolName: string, parameters: unknown, grantedScopes: readonly str
 afterEach(() => vi.restoreAllMocks());
 
 describe("Google Workspace native REST catalog", () => {
-  it("publishes only the 20 typed, registered Gmail, Drive, Docs, and Calendar operations", () => {
-    expect(GOOGLE_WORKSPACE_API_TOOLS).toHaveLength(20);
+  it("publishes only the 21 typed, registered Gmail, Drive, Docs, and Calendar operations", () => {
+    expect(GOOGLE_WORKSPACE_API_TOOLS).toHaveLength(21);
     expect(GOOGLE_WORKSPACE_API_TOOLS.map(tool => tool.name)).toEqual(expect.arrayContaining([
       "gmail__search_messages", "gmail__get_message", "gmail__get_thread", "gmail__list_drafts", "gmail__get_draft", "gmail__list_labels", "gmail__create_draft",
       "drive__search_files", "drive__get_file_metadata", "drive__read_file_content", "drive__create_file", "drive__copy_file",

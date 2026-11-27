@@ -38,7 +38,7 @@ const reviewedPolicies: ReviewedToolPolicy[] = [
   ...NATIVE_PROVIDER_CATALOGS.map((provider): ReviewedToolPolicy => ({
     sourceTemplateKey: provider.slug,
     quarantineNewEntries: true,
-    classifyRisk: tool => provider.risk(tool.name),
+    classifyRisk: tool => provider.isToolName(tool.name) ? provider.risk(tool.name) : null,
     matchesConnection: provider.isConnection,
   })),
   { sourceTemplateKey: "enterpret", quarantineNewEntries: true, classifyRisk: enterpretRisk },

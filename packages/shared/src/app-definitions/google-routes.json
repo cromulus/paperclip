@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "slug": "google-routes",
+  "name": "Google Routes",
+  "description": "Google Routes through its standard API with independent credentials and agent access.",
+  "categories": [
+    "productivity"
+  ],
+  "featured": false,
+  "branding": {
+    "logoUrl": "/brands/apps/google.svg"
+  },
+  "urlPatterns": [
+    "https://routes.googleapis.com/*"
+  ],
+  "docsUrl": "https://developers.google.com/maps/documentation/routes",
+  "methods": [
+    {
+      "key": "native-api",
+      "label": "Standard Google APIs",
+      "transport": "rest_api",
+      "auth": "api_key",
+      "capabilityProfile": {
+        "key": "read",
+        "label": "Read and query",
+        "description": "Separate service credentials and agent permissions."
+      },
+      "grantKinds": [
+        "user",
+        "organization"
+      ],
+      "ownershipModes": [
+        "customer"
+      ],
+      "whenToUse": "Use the standard API with a separate permission boundary.",
+      "defaults": {
+        "serverUrl": "https://routes.googleapis.com"
+      },
+      "guidanceMd": "Enable this Google API and billing in your Cloud project. Use a dedicated API key restricted to this API and, where possible, your server IP. This connection has no access to Gmail or other private Workspace data.",
+      "riskTier": "S3",
+      "credentialFields": [
+        {
+          "key": "apiKey",
+          "label": "Google Routes API key",
+          "type": "password",
+          "required": true,
+          "secret": true,
+          "helperMd": "Restrict this key to the selected Google API. Requests may incur Google usage charges.",
+          "placeholder": "Paste a restricted Google API key"
+        }
+      ],
+      "keyPlacement": {
+        "location": "header",
+        "name": "X-Goog-Api-Key"
+      }
+    }
+  ]
+}

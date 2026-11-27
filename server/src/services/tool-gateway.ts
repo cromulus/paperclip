@@ -3103,12 +3103,12 @@ export function createToolGatewayService(
       const connections = await db.select().from(toolConnections).where(and(
         eq(toolConnections.companyId, session.companyId), inArray(toolConnections.id, connectionIds),
       ));
-      for (const connection of connections.filter((item) => item.config.sourceTemplateKey === "google-workspace")) {
+      for (const connection of connections.filter((item) => item.config.sourceTemplateKey === "google-workspace" || nativeProviderCatalogFor(item)?.isToolGranted)) {
         let scopes: string[] = [];
         try { scopes = googleWorkspaceGrantedScopes(await resolveConnectionGrant(session, connection, false)); }
         catch { /* Missing identity or consent never contributes tools. */ }
         connectedTools = connectedTools.filter((tool) => tool.connectionId !== connection.id
-          || isGoogleWorkspaceToolGranted(tool.upstreamToolName ?? "", scopes));
+          || (nativeProviderCatalogFor(connection)?.isToolGranted ?? isGoogleWorkspaceToolGranted)(tool.upstreamToolName ?? "", scopes));
       }
     }
     return [
@@ -4941,9 +4941,19 @@ export function createToolGatewayService(
     session: ToolGatewaySession,
     tool: ToolGatewayDescriptor,
     parameters: unknown,
+    enforceConsent = false,
   ): Promise<unknown> {
     if (tool.providerType !== "mcp_remote_http" && tool.providerType !== "provider_rest") return parameters;
     const { connection, entry } = await resolveConnectedRemoteTool(session, tool);
+    // Recheck consent before cache/replay lookup, using the connection already
+    // loaded for argument governance. A revoked scope cannot replay old data.
+    const scopeGuard = nativeProviderCatalogFor(connection)?.isToolGranted
+      ?? (connection.config.sourceTemplateKey === "google-workspace" ? isGoogleWorkspaceToolGranted : undefined);
+    if (enforceConsent && scopeGuard && !scopeGuard(entry.toolName, googleWorkspaceGrantedScopes(await resolveConnectionGrant(session, connection, false)))) {
+      await writeAudit({session,companyId:session.companyId,agentId:session.agentId,runId:session.runId,issueId:session.issueId,
+        action:"tool_gateway.call_denied",details:{connectionId:connection.id,toolName:entry.toolName,reasonCode:"oauth_insufficient_scope"}});
+      throw new ToolGatewayHttpError(403, "This Google action is not covered by the current permission grant.", "oauth_insufficient_scope");
+    }
     return projectedConnectionToolArguments(connection, parameters, entry.toolName, entry.inputSchema ?? {});
   }
 
@@ -6082,14 +6092,14 @@ export function createToolGatewayService(
       const headers = await resolveCredentialHeaders(session, connection, grant);
       // Refresh may narrow consent. Dispatch with the current acting identity's
       // persisted grant rather than the pre-refresh snapshot.
-      const nativeGrant = connection.config.sourceTemplateKey === "google-workspace"
+      const nativeGrant = nativeProvider.isToolGranted
         ? await resolveConnectionGrant(session, connection, false) : grant;
       const data = await nativeProvider.execute({ binding: session, connection,
         headers,
         request: (url, init) => options.remoteHttpRequest ? options.remoteHttpRequest(url, init)
           : guardedRemoteHttpFetch(url, init, remoteHttpFetchOptions()),
         toolName: entry.toolName, parameters, signal, deadlineAt,
-        grantedScopes: connection.config.sourceTemplateKey === "google-workspace" ? googleWorkspaceGrantedScopes(nativeGrant) : undefined });
+        grantedScopes: nativeProvider.isToolGranted ? googleWorkspaceGrantedScopes(nativeGrant) : undefined });
       return { result: { content: JSON.stringify(data), data: { structuredContent: data, transport: "rest_api" } } };
     }
     if (isBrowserUseConnection(connection)) {
@@ -10296,6 +10306,7 @@ export function createToolGatewayService(
           session,
           tool,
           requestedParameters,
+          true,
         );
       }
 

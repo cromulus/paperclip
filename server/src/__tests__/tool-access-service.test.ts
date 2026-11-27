@@ -2647,6 +2647,34 @@ describeEmbeddedPostgres("tool access service", () => {
     })).rejects.toMatchObject({ status: 400 });
   });
 
+  it.each([
+    {slug:"google-calendar", method:"customer-workspace-api", scopes:["calendar.calendarlist.readonly","calendar.events"], prefix:"calendar__"},
+    {slug:"google-people", method:"native-api", scopes:["contacts.readonly"], prefix:"people__"},
+    {slug:"google-sheets", method:"native-api", scopes:["spreadsheets"], prefix:"sheets__"},
+    {slug:"google-slides", method:"native-api", scopes:["presentations"], prefix:"slides__"},
+    {slug:"google-meet", method:"native-api", scopes:["meetings.space.readonly"], prefix:"meet__"},
+    {slug:"google-workspace-search", method:"native-api", scopes:["drive.readonly"], prefix:"workspace__"},
+  ])("keeps $slug OAuth, discovery and agent access inside its separate native service", async ({slug,method,scopes,prefix}) => {
+    const company=await createCompany(db),userId=`native-google-${randomUUID()}`;
+    await grantBoardUser(db,company.id,userId,[],"owner");
+    const actor={actorType:"user" as const,actorId:userId},service=createTestToolAccessService(db);
+    const connected=await service.connectGalleryApp(company.id,{galleryKey:slug,connectionMethodKey:method,grantKind:"organization",oauthClient:{clientId:"fixture-client",clientSecret:"fixture-secret"}},actor);
+    const allowedAgent=await createAgent(db,company.id);
+    await db.insert(toolConnectionInstalls).values({companyId:company.id,connectionId:connected.connectionId,targetType:"agent",targetId:allowedAgent.id});
+    const redirectUri="https://paperclip.example/api/tools/oauth/callback",started=await service.startOAuth(company.id,connected.connectionId,{redirectUri,actor});
+    const authorization=new URL(started.authorizationUrl),requested=authorization.searchParams.get("scope")!.split(" ");
+    if(slug!=="google-workspace-search")expect(requested.every(scope=>!scope.includes("gmail"))).toBe(true);
+    const provider=vi.spyOn(globalThis,"fetch").mockImplementation(async url=>{
+      if(String(url)==="https://oauth2.googleapis.com/token")return Response.json({access_token:"fixture-google-access",refresh_token:"fixture-google-refresh",expires_in:3600,token_type:"Bearer",scope:scopes.map(s=>`https://www.googleapis.com/auth/${s}`).join(" ")});
+      expect(String(url)).toContain("/calendar/v3/users/me/calendarList");return Response.json({items:[]});
+    });
+    const completed=await service.completeOAuthCallback({state:authorization.searchParams.get("state")!,code:"fixture-code",redirectUri,actor});
+    const installs=await db.select().from(toolConnectionInstalls).where(eq(toolConnectionInstalls.connectionId,connected.connectionId));
+    expect(installs.map(i=>[i.targetType,i.targetId])).toEqual([["agent",allowedAgent.id]]);
+    expect(completed.connection.status).toBe("active");expect(completed.catalog.length).toBeGreaterThan(0);expect(completed.catalog.every(entry=>entry.toolName.startsWith(prefix))).toBe(true);
+    expect(provider.mock.calls.some(([url])=>String(url).includes("gmail.googleapis.com"))).toBe(false);
+  });
+
   it("connects standard Google APIs with offline OAuth and publishes only actual consent without MCP discovery", async () => {
     const company = await createCompany(db);
     const userId = `workspace-api-${randomUUID()}`;
@@ -5625,6 +5653,7 @@ describeEmbeddedPostgres("tool access service", () => {
     expect(
       nonPilotGmail.methods.map((method: { key: string }) => method.key),
     ).toEqual([
+      "customer-workspace-api",
       "customer-read-oauth",
       "customer-draft-oauth",
       "customer-archive-oauth",
@@ -5646,6 +5675,7 @@ describeEmbeddedPostgres("tool access service", () => {
     expect(
       pilotGmail.methods.map((method: { key: string }) => method.key),
     ).toEqual([
+      "customer-workspace-api",
       "paperclip-read",
       "customer-read-oauth",
       "customer-draft-oauth",
@@ -5673,6 +5703,7 @@ describeEmbeddedPostgres("tool access service", () => {
     expect(
       archivePilotGmail.methods.map((method: { key: string }) => method.key),
     ).toEqual([
+      "customer-workspace-api",
       "customer-read-oauth",
       "customer-draft-oauth",
       "paperclip-archive",

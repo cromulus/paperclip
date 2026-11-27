@@ -298,3 +298,18 @@ Gmail writes create drafts only. Docs edits require a revision. Existing preview
 MCP connections remain available. See the [connector playbook](../../doc/connections/CONNECTOR-PLAYBOOK.md).
 Verification: `not-run` for live Google account authorization and invocation.
 Controlled OAuth/provider fixtures establish local contracts only.
+
+Source addition (2026-11-27): Gmail, Calendar, Drive and Docs also have separate
+native OAuth methods. Contacts, Sheets, Slides, Meet and read-only Workspace
+Search have native API methods; Routes, Places and Translate use separate API
+keys. Each connection retains its own installation and action policy. Namespace
+checks prevent a Calendar/Maps/Meet connection from invoking Gmail even with
+broader upstream consent. Granted scopes are rechecked before cached replay.
+`POST /api/tool-connections/{connectionId}/google-push` is board-only and requires
+connection configuration permission. Provider-authenticated
+`POST /api/google-push/{connectionId}` selects a persisted same-company routine,
+rechecks the organization grant and dispatches metadata through the ordinary
+routine receipt ledger. It grants no new agent access. See
+[Google API boundaries](../../doc/connections/GOOGLE-NATIVE-APIS.md).
+Verification: controlled OAuth/API, RSA callback and real-Postgres watch lifecycle
+fixtures passed; Google consent, billable API calls and live push remain unverified.

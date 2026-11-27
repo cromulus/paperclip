@@ -95,7 +95,7 @@ export type GoogleWorkspaceService = keyof typeof GOOGLE_WORKSPACE_SERVICES;
 const one = (...scopes: string[]) => [scopes.map(auth)];
 const toolScopes: Record<GoogleWorkspaceService, Record<string, string[][]>> = {
   gmail: Object.fromEntries([
-    ...["get_message", "get_thread", "get_draft", "list_drafts", "list_labels", "search_threads", "list_threads", "search_messages"]
+    ...["get_message", "get_thread", "get_draft", "list_drafts", "list_labels", "list_history", "search_threads", "list_threads", "search_messages"]
       .map((name) => [name, one("gmail.readonly")]),
     ["create_draft", one("gmail.compose")],
   ]),

@@ -8,7 +8,7 @@ import { toolCatalogEntries, toolConnections } from "@paperclipai/db";
 import type { ToolCatalogEntry } from "@paperclipai/shared";
 
 import type { RefreshConnectionCatalog } from "./contracts.js";
-export function createToolCatalogReader(db: Db, options: { catalogCacheTtlMs?: number }, now: () => Date, getConnectionRow: (idOrUid: string, companyId?: string) => Promise<typeof toolConnections.$inferSelect>, refreshCatalog: RefreshConnectionCatalog, toCatalogEntryForConnection: (row: typeof toolCatalogEntries.$inferSelect, connection: typeof toolConnections.$inferSelect) => ToolCatalogEntry) {
+export function createToolCatalogReader(db: Db, options: { catalogCacheTtlMs?: number }, now: () => Date, getConnectionRow: (idOrUid: string, companyId?: string) => Promise<typeof toolConnections.$inferSelect>, refreshCatalog: RefreshConnectionCatalog, toCatalogEntryForConnection: (row: typeof toolCatalogEntries.$inferSelect, connection: typeof toolConnections.$inferSelect) => ToolCatalogEntry, nativeScopes?: (connection: typeof toolConnections.$inferSelect, actor?: ActorInfo) => Promise<readonly string[]>) {
   const catalogRefreshFlights = new Map<string, Promise<unknown>>();
   const catalogCacheTtlMs = Math.max(
     0,
@@ -31,9 +31,11 @@ export function createToolCatalogReader(db: Db, options: { catalogCacheTtlMs?: n
       // REST discovery has no remote MCP cache timer.
       const nativeProvider = nativeProviderCatalogFor(connection);
       const rowsByName = new Map(rows.map((row) => [row.toolName, row]));
+      const scopes = nativeProvider?.isToolGranted && nativeScopes ? await nativeScopes(connection, actor) : [];
+      const expectedTools = nativeProvider?.tools.filter(tool => !nativeProvider.isToolGranted || nativeProvider.isToolGranted(tool.name, scopes)) ?? [];
       const nativeCatalogChanged = Boolean(nativeProvider) && connection.status === "active" && (
         rows.some((row) => row.status !== "removed" && !nativeProvider!.isToolName(row.toolName))
-        || nativeProvider!.tools.some((tool) => {
+        || expectedTools.some((tool) => {
           const existing = rowsByName.get(tool.name);
           return !existing || existing.versionHash !== descriptorHash(tool, nativeProvider!.risk(tool.name));
         })

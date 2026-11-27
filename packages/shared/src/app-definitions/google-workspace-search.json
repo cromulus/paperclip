@@ -15,19 +15,44 @@
     "https://workspacemcp.googleapis.com/*"
   ],
   "docsUrl": "https://developers.google.com/workspace/guides/universal-search-mcp",
-  "setupPrerequisite": {
-    "title": "Google Developer Preview access required",
-    "description": "Google must register both the Workspace email used to authorize Paperclip and the Google Cloud project that owns the OAuth client. Registration is limited to those emails and projects; it does not enable unrelated Paperclip customers.",
-    "steps": [
-      "Apply with the Workspace email that will sign in and the Google Cloud project that owns the OAuth client.",
-      "Wait for the Google Group notification and then Google's final project-registration email, usually within a couple of days.",
-      "Add every additional tester email or Cloud project through Google's member request forms before connecting."
-    ],
-    "actionLabel": "Apply or verify Developer Preview enrollment",
-    "actionUrl": "https://developers.google.com/workspace/preview"
-  },
   "redirectConstraints": "https-or-loopback-http",
   "methods": [
+    {
+      "key": "native-api",
+      "label": "Standard Google APIs",
+      "transport": "rest_api",
+      "auth": "oauth",
+      "capabilityProfile": {
+        "key": "read",
+        "label": "Read and query",
+        "description": "Separate service credentials and agent permissions."
+      },
+      "grantKinds": [
+        "user",
+        "organization"
+      ],
+      "ownershipModes": [
+        "customer"
+      ],
+      "whenToUse": "Use the standard API with a separate permission boundary.",
+      "defaults": {
+        "serverUrl": "https://www.googleapis.com",
+        "authorizationEndpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+        "tokenEndpoint": "https://oauth2.googleapis.com/token",
+        "scopesHint": [
+          "https://www.googleapis.com/auth/gmail.readonly",
+          "https://www.googleapis.com/auth/drive.readonly",
+          "https://www.googleapis.com/auth/calendar.events.readonly"
+        ],
+        "oauthAuthorizationParams": {
+          "access_type": "offline",
+          "prompt": "consent"
+        }
+      },
+      "guidanceMd": "Enable the required Google APIs and sign in using a dedicated OAuth grant. Assign only the agents that need this data.",
+      "riskTier": "S3",
+      "oauthClientSecretRequired": true
+    },
     {
       "key": "paperclip-read",
       "label": "Connect with Paperclip",

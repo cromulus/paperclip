@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "slug": "google-meet",
+  "name": "Google Meet",
+  "description": "Google Meet through its standard API with independent credentials and agent access.",
+  "categories": [
+    "productivity"
+  ],
+  "featured": false,
+  "branding": {
+    "logoUrl": "/brands/apps/google.svg"
+  },
+  "urlPatterns": [
+    "https://meet.googleapis.com/*"
+  ],
+  "docsUrl": "https://developers.google.com/workspace/meet/api/guides/overview",
+  "methods": [
+    {
+      "key": "native-api",
+      "label": "Standard Google APIs",
+      "transport": "rest_api",
+      "auth": "oauth",
+      "capabilityProfile": {
+        "key": "read",
+        "label": "Read and query",
+        "description": "Separate service credentials and agent permissions."
+      },
+      "grantKinds": [
+        "user",
+        "organization"
+      ],
+      "ownershipModes": [
+        "customer"
+      ],
+      "whenToUse": "Use the standard API with a separate permission boundary.",
+      "defaults": {
+        "serverUrl": "https://meet.googleapis.com",
+        "authorizationEndpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+        "tokenEndpoint": "https://oauth2.googleapis.com/token",
+        "scopesHint": [
+          "https://www.googleapis.com/auth/meetings.space.readonly"
+        ],
+        "oauthAuthorizationParams": {
+          "access_type": "offline",
+          "prompt": "consent"
+        }
+      },
+      "guidanceMd": "Enable the required Google APIs and sign in using a dedicated OAuth grant. Assign only the agents that need this data.",
+      "riskTier": "S3",
+      "oauthClientSecretRequired": true
+    }
+  ]
+}

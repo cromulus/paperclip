@@ -1,3 +1,4 @@
+import { googlePushService, googlePushSetupSchema } from "../services/connectors/google-workspace-api/push.js";
 import { isCrossSiteOAuthCallbackNavigation, oauthCallbackInterstitialHtml } from "../lib/oauth-browser-return.js";
 import { aiConnectionRouterPluginKey } from "@paperclipai/shared";
 import { aiConnectionRouterService } from "../services/ai-connection-router.js";
@@ -992,6 +993,16 @@ function connectorEnrollmentPrincipal(req: Request): string {
       res.json({ url: result.authorizationUrl, ...(result.handoff ? { handoff: result.handoff } : {}) });
     },
   );
+
+  router.post("/tool-connections/:connectionId/google-push", validate(googlePushSetupSchema), async (req, res) => {
+    assertBoard(req);
+    const connection = await getAccessibleResource(req, res, svc.getConnection(req.params.connectionId as string), "Tool connection not found");
+    if (!connection) return;
+    await assertToolConnectionConfigureAccess(req, connection);
+    const result = await googlePushService(db).configure(connection.companyId, connection.id, req.body);
+    await logActivity(db, { companyId: connection.companyId, actorType: "user", actorId: req.actor.userId ?? "board", action: "google_push.configured", entityType: "tool_connection", entityId: connection.id, details: { enabled: result.enabled, triggerId: result.triggerId } });
+    res.json(result);
+  });
 
   router.post("/tools/oauth/:connectionId/start", validate(startToolOAuthSchema), async (req, res) => {
     const existing = await getAccessibleResource(req, res, svc.getConnection(req.params.connectionId as string), "Tool connection not found");
