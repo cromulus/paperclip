@@ -1,3 +1,4 @@
+import { getConnectableAppDefinition } from "../app-definitions.js";
 import { connectionAgentInstructionsSchema } from "../connection-instructions.js";
 import { isRemoteMcpConnectorMethod } from "../remote-mcp-connectors.js";
 import { z } from "zod";
@@ -456,8 +457,9 @@ export const connectToolAppSchema = z.object({
   if ((value.grantKind === "agent") !== Boolean(value.subjectAgentId)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["subjectAgentId"], message: "subjectAgentId is required exactly for an agent grant" });
   }
-  if (value.saveDraft && !isRemoteMcpConnectorMethod(value.galleryKey, value.connectionMethodKey)) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["saveDraft"], message: "Draft saving requires a remote MCP connector" });
+  const nativeApiMethod = value.galleryKey && getConnectableAppDefinition(value.galleryKey)?.methods.find(method => method.key === value.connectionMethodKey)?.transport === "rest_api";
+  if (value.saveDraft && !nativeApiMethod && !isRemoteMcpConnectorMethod(value.galleryKey, value.connectionMethodKey)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["saveDraft"], message: "Draft saving requires a reviewed API or remote MCP connector" });
   }
   if (value.authMode && value.galleryKey && !isRemoteMcpConnectorMethod(value.galleryKey, value.connectionMethodKey)) {
     ctx.addIssue({

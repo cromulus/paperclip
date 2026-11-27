@@ -1,3 +1,4 @@
+import { nativeProviderCatalogFor } from "../../native-provider-catalogs.js";
 import type { ActorInfo } from "../types.js";
 import { isRemoteMcpConnectorMethod } from "@paperclipai/shared";
 import { and, eq } from "drizzle-orm";
@@ -68,7 +69,7 @@ export function createOAuthCatalogCompletion(db: Db, finishGalleryAppConnection:
     // Workspace setup saves the operator's install selection before OAuth too.
     // An empty selection means no agents, not permission to apply all-agent
     // defaults after the user returns from Google.
-    const preserveEmptyInstalls = input.connection.config.sourceTemplateKey === "google-workspace"
+    const preserveEmptyInstalls = Boolean(nativeProviderCatalogFor(input.connection)) || input.connection.config.sourceTemplateKey === "google-workspace"
       || isRemoteMcpConnectorMethod(
       input.connection.config.sourceTemplateKey,
       input.connection.config.connectionMethodKey,

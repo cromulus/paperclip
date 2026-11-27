@@ -2255,6 +2255,7 @@ export function toolAccessService(
       current: typeof connectionGrants.$inferSelect;
     } | null = null;
     let personalPublicSetupEstablished = false;
+    const saveNativeDraft = Boolean(input.saveDraft && nativeProviderCatalogFor({ transport, config }));
 
     try {
       const credentialFields =
@@ -2282,7 +2283,7 @@ export function toolAccessService(
           }
           continue;
         }
-        if (!value && field.required !== false) {
+        if (!value && field.required !== false && !saveNativeDraft) {
           throw badRequest(`Missing credential value for ${field.configPath}`);
         }
         if (!value) continue;
@@ -2709,7 +2710,7 @@ export function toolAccessService(
       );
       await ensureRuntimeSlot(connectionRow);
 
-      if (input.saveDraft && remoteMcpConnector) {
+      if (input.saveDraft && (remoteMcpConnector || saveNativeDraft)) {
         return { connectionId: connectionRow.id, application: toApplication(applicationRow), connection: toConnection(connectionRow),
           catalog: [], actions: { readOnly: [], canMakeChanges: [] }, suggestedDefaults: { access: "all_agents", askFirstRiskLevels: [] } };
       }

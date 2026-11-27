@@ -53,6 +53,8 @@ Reuse a company-owned OAuth **client registration** when appropriate; each
 connection still requires its own grant. Never copy access/refresh tokens from
 another account/connection or use sign-in credentials as provider credentials.
 
+Native API setup can save an inactive draft before a key or OAuth credential is entered; draft saving never probes the provider or fabricates a credential.
+
 Install the connection only on its intended agents before consent. The existing
 OAuth completion path preserves a nonempty agent install selection. Review
 native actions on Permissions. Native catalogs reflect actual persisted consent;

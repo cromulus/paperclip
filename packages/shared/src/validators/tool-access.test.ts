@@ -207,3 +207,12 @@ describe("tool access validators", () => {
     expect(parsed.redactedFields).toEqual(["headers.Authorization", "body.token"]);
   });
 });
+
+
+describe("native API setup drafts",()=>{
+ it("allows reviewed Google API drafts without credentials and rejects unrelated transports",()=>{
+  expect(connectToolAppSchema.safeParse({galleryKey:"gmail",connectionMethodKey:"customer-workspace-api",saveDraft:true}).success).toBe(true);
+  expect(connectToolAppSchema.safeParse({galleryKey:"google-routes",connectionMethodKey:"native-api",saveDraft:true}).success).toBe(true);
+  expect(connectToolAppSchema.safeParse({galleryKey:"google-routes",connectionMethodKey:"unreviewed",saveDraft:true}).success).toBe(false);
+ });
+});

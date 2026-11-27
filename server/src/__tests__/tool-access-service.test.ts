@@ -2647,6 +2647,13 @@ describeEmbeddedPostgres("tool access service", () => {
     })).rejects.toMatchObject({ status: 400 });
   });
 
+  it("saves a native Routes API draft without inventing a key or making a provider request",async()=>{
+    const company=await createCompany(db),service=createTestToolAccessService(db);
+    const provider=vi.spyOn(globalThis,"fetch").mockImplementation(async()=>{throw Error("Draft setup must not contact Google")});
+    const connected=await service.connectGalleryApp(company.id,{galleryKey:"google-routes",connectionMethodKey:"native-api",grantKind:"organization",saveDraft:true});
+    expect(connected.connection.status).toBe("draft");expect(connected.connection.enabled).toBe(false);expect(connected.catalog).toEqual([]);expect(connected.connection.credentialSecretRefs).toEqual([]);expect(provider).not.toHaveBeenCalled();
+  });
+
   it.each([
     {slug:"google-calendar", method:"customer-workspace-api", scopes:["calendar.calendarlist.readonly","calendar.events"], prefix:"calendar__"},
     {slug:"google-people", method:"native-api", scopes:["contacts.readonly"], prefix:"people__"},
