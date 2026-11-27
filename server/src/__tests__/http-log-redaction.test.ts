@@ -12,6 +12,13 @@ import { testAdapterEnvironmentSchema } from "@paperclipai/shared";
 import { createHttpLogger } from "../middleware/logger.js";
 
 describe("HTTP logger redaction", () => {
+  it("redacts Google channel tokens and API keys even outside a valid callback path",async()=>{
+    const chunks:string[]=[];const stream=new Writable({write(chunk,_encoding,callback){chunks.push(chunk.toString());callback();}});
+    const app=express();app.use(createHttpLogger(pino({redact:[...HTTP_LOG_REDACT_PATHS]},stream)));app.use((_req,res)=>res.status(400).json({error:"rejected"}));
+    await request(app).post("/ordinary-rejected-request").set("X-Goog-Channel-Token","google-channel-private-canary").set("X-Goog-Api-Key","google-api-private-canary");
+    const output=chunks.join("");expect(output.length).toBeGreaterThan(0);expect(output).not.toContain("google-channel-private-canary");expect(output).not.toContain("google-api-private-canary");
+  });
+
   it.each([200, 400, 500])("keeps connector and observability credentials out of %i logs", async status => {
     const canaries = ["configuration-canary", "signing-canary", "client-canary", "bot-canary", "oauth-code-canary", "provider-echo-canary"];
     const chunks: string[] = [];
@@ -105,6 +112,9 @@ describe("HTTP logger redaction", () => {
     expect(JSON.parse(output.trim()).reqBody).toBe("[REDACTED]");
   });
   it.each([
+    { method: "POST", path: "/api/google-push/private-url-canary" },
+    { method: "GET", path: "/api/google-push/private-url-canary" },
+    { method: "PUT", path: "http://provider.invalid/api/google-push/../private-url-canary" },
     { method: "POST", path: "/api/routine-triggers/public/private-url-canary/fire" },
     { method: "PUT", path: "/api/routine-triggers/public/private-url-canary/fire" },
 
@@ -190,7 +200,7 @@ describe("HTTP logger redaction", () => {
       const log = JSON.parse(output.trim());
       expect(log.req).toMatchObject({
         method,
-        url: path.includes("routine-triggers") ? "/api/routine-triggers/public/:publicId/fire" : "/api/chat-webhooks/:publicId/:provider",
+        url: path.includes("google-push") ? "/api/google-push/:connectionId" : path.includes("routine-triggers") ? "/api/routine-triggers/public/:publicId/fire" : "/api/chat-webhooks/:publicId/:provider",
       });
       expect(log.reqBody).toBe("[REDACTED]");
       expect(log.err.message).toBe("Chat webhook request failed");

@@ -1,5 +1,7 @@
 export const HTTP_LOG_REDACT_PATHS = [
   "req.headers.authorization",
+  'req.headers["x-goog-channel-token"]',
+  'req.headers["x-goog-api-key"]',
   "res.headers.location",
   'req.headers["proxy-authorization"]',
   "req.headers.cookie",

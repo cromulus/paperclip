@@ -27,6 +27,9 @@ describe("isPrivateWebhookHttpRequest", () => {
       isPrivateWebhookHttpRequest("POST", "/API/CHAT-WEBHOOKS/id/SLACK"),
     ).toBe(true);
     for (const path of [
+      "/api/google-push",
+      "/api/google-push/private-channel",
+      "http://host.invalid/api/google-push/../private-channel",
       "/api/voice-webhooks",
       "/api/voice-webhooks/id/tools",
       "http://host.invalid/api/voice-webhooks/../private-component",
