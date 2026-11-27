@@ -8547,6 +8547,16 @@ describeEmbeddedPostgres("tool access service", () => {
       expect(fixture.calls).toEqual(["read_doc"]);
     });
 
+    it("blocks cached Google reads immediately when the agent role loses connection access",async()=>{
+      const fixture=await connectWorkspace("customer");
+      const tool=(await fixture.gateway.listToolsForSession(fixture.session.token)).find(t=>t.upstreamToolName==="docs__read_doc")!;
+      const input={sessionToken:fixture.session.token,tool:tool.name,parameters:{},idempotencyKey:"google-role-cache-test"};
+      await expect(fixture.gateway.executeTool(input)).resolves.toMatchObject({status:"completed"});
+      await db.insert(toolPolicies).values({companyId:fixture.company.id,name:"Google role removed",policyType:"block",priority:0,enabled:true,selectors:{connectionId:fixture.connected.connectionId,agentIds:[fixture.agent.id]}});
+      await expect(fixture.gateway.executeTool(input)).rejects.toMatchObject({status:403});
+      expect(fixture.calls).toEqual(["read_doc"]);
+    });
+
     it.each(["managed", "customer"] as const)("blocks explicit retry and updates listing after %s refresh narrows consent", async (mode) => {
       const fixture = await connectWorkspace(mode);
       const tool = (await fixture.gateway.listToolsForSession(fixture.session.token)).find((item) => item.upstreamToolName === "docs__read_doc")!;

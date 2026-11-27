@@ -10340,6 +10340,14 @@ export function createToolGatewayService(
           argumentsHash: argumentValidation.summary.sha256 ?? "",
         });
         if (replay?.matched) {
+          if (tool.connectionId) {
+            const replayAccessInput = policyInputForTool({session,tool,parameters:effectiveParameters,consumeRateLimit:false});
+            const currentAccess = await policyService.decide(replayAccessInput);
+            if (!currentAccess.allowed && currentAccess.decision !== "require_approval") {
+              await policyService.writeAudit(replayAccessInput,currentAccess);
+              throw new ToolGatewayHttpError(policyErrorStatus(currentAccess),currentAccess.explanation,currentAccess.reasonCode);
+            }
+          }
           let replayResult: unknown = replay.result;
           if (tool.providerType === "paperclip_github_chat" && ["comment", "update_comment", "submit_review"].includes(tool.upstreamToolName ?? "")) {
             const access = await policyService.decide(policyInputForTool({ session, tool, parameters: effectiveParameters, consumeRateLimit: false }));
@@ -10793,6 +10801,7 @@ export function createToolGatewayService(
           recoveredGitHubPublication = { content: JSON.stringify(receipt), data: receipt };
         }
         if (recorded.replayed && !retryingSlackRateLimit && !retryingGitHubPublication) {
+          if (!accessDecision.allowed && accessDecision.decision !== "require_approval") throw new ToolGatewayHttpError(policyErrorStatus(accessDecision),accessDecision.explanation,accessDecision.reasonCode);
           if (gitHubPublicationReplay && !gitHubReplayPolicyAllowed)
             throw new ToolGatewayHttpError(policyErrorStatus(accessDecision), accessDecision.explanation, accessDecision.reasonCode);
           await writeAudit({

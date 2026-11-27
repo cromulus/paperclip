@@ -60,6 +60,8 @@ OAuth completion path preserves a nonempty agent install selection. Review
 native actions on Permissions. Native catalogs reflect actual persisted consent;
 requested scopes are not evidence of authorization. Scope checks run before
 cached invocation replay and again at dispatch, including after token refresh.
+Cached connected-tool results also recheck current action policies: removing a
+role blocks cached retrieval without repeating an external operation.
 
 Google consent and API enablement require account-bound verification. Unit tests,
 configuration-only health probes, and a successful OAuth authorization URL do not
