@@ -2666,6 +2666,10 @@ describeEmbeddedPostgres("tool access service", () => {
     await grantBoardUser(db,company.id,userId,[],"owner");
     const actor={actorType:"user" as const,actorId:userId},service=createTestToolAccessService(db);
     const connected=await service.connectGalleryApp(company.id,{galleryKey:slug,connectionMethodKey:method,grantKind:"organization",oauthClient:{clientId:"fixture-client",clientSecret:"fixture-secret"}},actor);
+    // Saving the client-registration reference uses the normal PATCH lifecycle;
+    // API-backed Sheets must never enter the old local robot's link allowlist.
+    const saved=await service.updateConnection(connected.connectionId,{name:`${slug} API registration`});
+    expect(saved.config.connectionMethodKey).toBe(method);
     const allowedAgent=await createAgent(db,company.id);
     await db.insert(toolConnectionInstalls).values({companyId:company.id,connectionId:connected.connectionId,targetType:"agent",targetId:allowedAgent.id});
     const redirectUri="https://paperclip.example/api/tools/oauth/callback",started=await service.startOAuth(company.id,connected.connectionId,{redirectUri,actor});

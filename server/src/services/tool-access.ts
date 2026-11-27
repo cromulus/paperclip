@@ -509,19 +509,19 @@ function googleSheetsAllowedSpreadsheetIds(
   );
 }
 
-function isGoogleSheetsConnectionConfig(
+function isGoogleSheetsRobotConnectionConfig(
   configValues: Record<string, unknown> | undefined,
 ): boolean {
   return (
-    configValues?.sourceTemplateKey === GOOGLE_SHEETS_GALLERY_KEY ||
+    (configValues?.sourceTemplateKey === GOOGLE_SHEETS_GALLERY_KEY && configValues?.connectionMethodKey !== "native-api") ||
     configValues?.templateId === GOOGLE_SHEETS_TEMPLATE_ID
   );
 }
 
-function normalizeGoogleSheetsConnectionConfig(
+function normalizeGoogleSheetsRobotConnectionConfig(
   configValues: Record<string, unknown>,
 ): Record<string, unknown> {
-  if (!isGoogleSheetsConnectionConfig(configValues)) return configValues;
+  if (!isGoogleSheetsRobotConnectionConfig(configValues)) return configValues;
   const allowedSpreadsheetIds = googleSheetsAllowedSpreadsheetIds(configValues);
   if (allowedSpreadsheetIds.length === 0) {
     throw badRequest("Paste at least one Google Sheets link.");
@@ -926,7 +926,7 @@ export function toolAccessService(
     config: Record<string, unknown>,
     options: { excludeConnectionId?: string } = {},
   ) {
-    if (!isGoogleSheetsConnectionConfig(config)) return;
+    if (!isGoogleSheetsRobotConnectionConfig(config)) return;
     const allowedSpreadsheetIds = googleSheetsAllowedSpreadsheetIds(config);
     if (allowedSpreadsheetIds.length === 0) return;
     const allowed = new Set(allowedSpreadsheetIds);
@@ -943,7 +943,7 @@ export function toolAccessService(
     for (const row of rows) {
       if (row.id === options.excludeConnectionId || row.companyId === companyId)
         continue;
-      if (!isGoogleSheetsConnectionConfig(row.config)) continue;
+      if (!isGoogleSheetsRobotConnectionConfig(row.config)) continue;
       for (const spreadsheetId of googleSheetsAllowedSpreadsheetIds(
         row.config,
       )) {
@@ -2162,7 +2162,7 @@ export function toolAccessService(
         [GOOGLE_SHEETS_ALLOWED_SPREADSHEET_IDS_ENV]:
           allowedSpreadsheetIds.join(","),
       };
-      config = normalizeGoogleSheetsConnectionConfig(config);
+      config = normalizeGoogleSheetsRobotConnectionConfig(config);
       await assertGoogleSheetsSpreadsheetOwnership(companyId, config);
     }
     if (transport === "mcp_remote")
@@ -4476,7 +4476,7 @@ export function toolAccessService(
       let applicationNamespace = input.applicationName ?? input.name;
       const transport = input.transport;
       if (!transport) throw badRequest("Tool connection transport is required");
-      const config = normalizeGoogleSheetsConnectionConfig(
+      const config = normalizeGoogleSheetsRobotConnectionConfig(
         input.config ?? input.transportConfig ?? {},
       );
       await assertConnectorConnectionSetupEnabled({ config, applicationId, companyId });
@@ -4541,7 +4541,7 @@ export function toolAccessService(
             typeof config.sourceTemplateKey === "string" ? getConnectableAppDefinition(config.sourceTemplateKey)?.agentInstructions : null,
           ),
           config,
-          transportConfig: isGoogleSheetsConnectionConfig(config)
+          transportConfig: isGoogleSheetsRobotConnectionConfig(config)
             ? config
             : (input.transportConfig ?? config),
           credentialRefs: input.credentialRefs ?? [],
@@ -4588,7 +4588,7 @@ export function toolAccessService(
     ): Promise<ToolConnection> => {
       const existing = await getConnectionRow(connectionId);
       if (existing.connectionPurpose === "ai" && (input.config || input.transportConfig || input.credentialRefs || input.credentialSecretRefs || (input.credentialPolicy && input.credentialPolicy !== existing.credentialPolicy))) throw badRequest("Use AI account reconnect to change credentials. Provider, sign-in method, and ownership cannot be changed.");
-      let config = normalizeGoogleSheetsConnectionConfig(
+      let config = normalizeGoogleSheetsRobotConnectionConfig(
         input.config ?? input.transportConfig ?? existing.config,
       );
       if (input.config?.methodConfig !== undefined && typeof config.sourceTemplateKey === "string") {
@@ -4619,7 +4619,7 @@ export function toolAccessService(
           enabled: input.enabled ?? existing.enabled,
           ...(input.agentInstructions !== undefined ? { agentInstructions: input.agentInstructions } : {}),
           config,
-          transportConfig: isGoogleSheetsConnectionConfig(config)
+          transportConfig: isGoogleSheetsRobotConnectionConfig(config)
             ? config
             : (input.transportConfig ?? config),
           credentialRefs: input.credentialRefs ?? existing.credentialRefs,
